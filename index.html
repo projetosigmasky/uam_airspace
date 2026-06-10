@@ -17,7 +17,7 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: #f3f4f6;
+            background: #0c1218;
             height: 100vh;
             overflow: hidden;
         }
@@ -143,6 +143,21 @@
             font-size: 0.75rem;
             color: #6b7280;
             margin-top: 0.25rem;
+        }
+
+        .layer-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .layer-color-input {
+            width: 1.75rem;
+            height: 1.75rem;
+            padding: 0;
+            border: 1px solid #d1d5db;
+            border-radius: 0.25rem;
+            cursor: pointer;
         }
 
         .button {
@@ -300,7 +315,7 @@
         .main-view {
             flex: 1;
             position: relative;
-            background: white;
+            background: #0c1218;
         }
 
         canvas {
@@ -660,6 +675,14 @@
                     </div>
                 </div>
 
+                <!-- File Layers -->
+                <div id="fileLayersSection" style="display: none;">
+                    <div class="routes-header">
+                        <label class="section-title">File Layers (<span id="fileLayerCount">0</span>)</label>
+                    </div>
+                    <div class="routes-list" id="fileLayersList"></div>
+                </div>
+
                 <!-- Vertiports List -->
                 <div>
                     <div class="routes-header">
@@ -895,9 +918,9 @@
                 <div class="grid-size-container">
                     <div class="grid-size-label">
                         <span>Grid Size</span>
-                        <span id="gridSizeValue">100 m</span>
+                        <span id="gridSizeValue">500 m</span>
                     </div>
-                    <input type="range" id="gridSizeSlider" class="grid-size-slider" min="25" max="500" step="25" value="100">
+                    <input type="range" id="gridSizeSlider" class="grid-size-slider" min="500" max="5000" step="100" value="500">
                 </div>
             </div>
 
@@ -930,7 +953,7 @@
             vertiports: new Map(),
             selectedVertiportName: null,
             showGrid: true,
-            gridCellSize: 100, // Grid cell size in units
+            gridCellSize: 500, // Grid cell size in meters
             currentView: '3d',
             unit: 'meters', // 'meters' or 'feet'
             editingFieldId: null, // Track which input field is currently being edited
@@ -939,6 +962,7 @@
             showVolumeProjection: false, // Show volume projections in 2D map instead of centerlines
             showNodes: true, // Show/hide waypoint nodes
             trajectories: [], // Array of loaded trajectories for 2D map display
+            fileLayers: [], // File-level groups for batch color and visibility controls
             allRoutesVisible: true, // Track if all routes are currently visible
             allVertiportsVisible: true // Track if all vertiports are currently visible
         };
@@ -947,10 +971,102 @@
         let scene, camera, renderer, cssRenderer, gridHelper;
         let cameraTarget, cameraDistance, cameraYaw, cameraPitch;
         const canvasElement = document.getElementById('canvas');
+        const MIN_CAMERA_DISTANCE = 500;
+        const DEFAULT_MAX_CAMERA_DISTANCE = 100000;
+        const DEFAULT_CAMERA_FAR = 500000;
         
         // Leaflet map variable
         let map2D = null;
         const mapElement = document.getElementById('map');
+
+        function randomColorHex() {
+            return '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
+        }
+
+        function createFileLayer(fileName, color, type) {
+            const layer = {
+                id: `file-layer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                name: fileName,
+                color,
+                type,
+                visible: true
+            };
+            state.fileLayers.push(layer);
+            return layer;
+        }
+
+        function routeColorToCss(route) {
+            if (!route || !route.color) return '#0066cc';
+            return `rgb(${Math.round(route.color.r * 255)}, ${Math.round(route.color.g * 255)}, ${Math.round(route.color.b * 255)})`;
+        }
+
+        function getVertiportColor(vertiport) {
+            return (vertiport && vertiport.color) ? vertiport.color : '#4444ff';
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function getLayerStats(layerId) {
+            const routeCount = state.routes.filter(route => route.layerId === layerId).length;
+            let vertiportCount = 0;
+            state.vertiports.forEach((vertiport) => {
+                if (vertiport.layerId === layerId) vertiportCount++;
+            });
+            const trajectoryCount = state.trajectories.filter(trajectory => trajectory.layerId === layerId).length;
+
+            const visibleRoutes = state.routes.filter(route => route.layerId === layerId && route.visible).length;
+            let visibleVertiports = 0;
+            state.vertiports.forEach((vertiport) => {
+                if (vertiport.layerId === layerId && vertiport.visible) visibleVertiports++;
+            });
+            const visibleTrajectories = state.trajectories.filter(trajectory => trajectory.layerId === layerId && trajectory.visible).length;
+
+            const total = routeCount + vertiportCount + trajectoryCount;
+            const visible = visibleRoutes + visibleVertiports + visibleTrajectories;
+
+            return { routeCount, vertiportCount, trajectoryCount, total, visible };
+        }
+
+        function setFileLayerVisibility(layerId, visible) {
+            const layer = state.fileLayers.find(item => item.id === layerId);
+            if (layer) layer.visible = visible;
+
+            state.routes.forEach(route => {
+                if (route.layerId === layerId) route.visible = visible;
+            });
+            state.vertiports.forEach((vertiport) => {
+                if (vertiport.layerId === layerId) vertiport.visible = visible;
+            });
+            state.trajectories.forEach(trajectory => {
+                if (trajectory.layerId === layerId) trajectory.visible = visible;
+            });
+
+            updateUI();
+        }
+
+        function setFileLayerColor(layerId, color) {
+            const layer = state.fileLayers.find(item => item.id === layerId);
+            if (layer) layer.color = color;
+
+            state.routes.forEach(route => {
+                if (route.layerId === layerId) route.color = new THREE.Color(color);
+            });
+            state.vertiports.forEach((vertiport) => {
+                if (vertiport.layerId === layerId) vertiport.color = color;
+            });
+            state.trajectories.forEach(trajectory => {
+                if (trajectory.layerId === layerId) trajectory.color = color;
+            });
+
+            updateUI();
+        }
 
         // Unit conversion functions
         function metersToFeet(meters) {
@@ -979,7 +1095,7 @@
             return state.unit === 'feet' ? 'ft' : 'm';
         }
 
-        // Create a solid green texture for the map
+        // Create a dark reference surface texture for the 3D plane
         function createMapTexture() {
             const canvas = document.createElement('canvas');
             const size = 256;
@@ -987,8 +1103,17 @@
             canvas.height = size;
             const ctx = canvas.getContext('2d');
 
-            // Solid green background
-            ctx.fillStyle = '#22c55e';
+            const gradient = ctx.createRadialGradient(
+                size * 0.5,
+                size * 0.5,
+                size * 0.1,
+                size * 0.5,
+                size * 0.5,
+                size * 0.75
+            );
+            gradient.addColorStop(0, '#1b2835');
+            gradient.addColorStop(1, '#141d27');
+            ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, size, size);
 
             return new THREE.CanvasTexture(canvas);
@@ -998,6 +1123,7 @@
         function calculateSceneBounds() {
             let minX = Infinity, maxX = -Infinity;
             let minZ = Infinity, maxZ = -Infinity;
+            let maxY = 0;
 
             // Check vertiports
             state.vertiports.forEach((vertiport) => {
@@ -1007,6 +1133,7 @@
                 maxX = Math.max(maxX, pos.x + padding);
                 minZ = Math.min(minZ, pos.z - padding);
                 maxZ = Math.max(maxZ, pos.z + padding);
+                maxY = Math.max(maxY, vertiport.height || 0);
             });
 
             // Check routes
@@ -1018,6 +1145,7 @@
                     maxX = Math.max(maxX, pos.x + padding);
                     minZ = Math.min(minZ, pos.z - padding);
                     maxZ = Math.max(maxZ, pos.z + padding);
+                    maxY = Math.max(maxY, (wp.altitude || 0) + (wp.height || 0));
                 });
             });
 
@@ -1033,8 +1161,34 @@
             const height = maxZ - minZ;
             const centerX = (minX + maxX) / 2;
             const centerZ = (minZ + maxZ) / 2;
+            const diagonal = Math.sqrt(width * width + height * height + maxY * maxY);
 
-            return { width, height, centerX, centerZ, minX, maxX, minZ, maxZ };
+            return { width, height, centerX, centerZ, minX, maxX, minZ, maxZ, maxY, diagonal };
+        }
+
+        function getMaxCameraDistance() {
+            const bounds = calculateSceneBounds();
+            return Math.max(DEFAULT_MAX_CAMERA_DISTANCE, bounds.diagonal * 3);
+        }
+
+        function updateCameraClipping() {
+            if (!camera) return;
+            const maxDistance = getMaxCameraDistance();
+            camera.far = Math.max(DEFAULT_CAMERA_FAR, maxDistance * 2);
+            camera.updateProjectionMatrix();
+        }
+
+        function fitCameraToScene() {
+            if (!camera || !cameraTarget) return;
+            const bounds = calculateSceneBounds();
+            const maxDistance = getMaxCameraDistance();
+            const fitDistance = Math.max(MIN_CAMERA_DISTANCE, Math.min(maxDistance, bounds.diagonal * 1.25));
+
+            cameraTarget.set(bounds.centerX, 0, bounds.centerZ);
+            cameraDistance = fitDistance;
+            cameraYaw = Math.PI / 4;
+            cameraPitch = Math.PI / 3;
+            updateCameraClipping();
         }
 
         // Create map ground plane with dynamic size
@@ -1046,6 +1200,8 @@
             const geometry = new THREE.PlaneGeometry(size, size);
             const material = new THREE.MeshLambertMaterial({ 
                 map: texture,
+                color: 0xffffff,
+                emissive: 0x070b10,
                 side: THREE.DoubleSide
             });
             const plane = new THREE.Mesh(geometry, material);
@@ -1068,6 +1224,7 @@
             mapPlane.geometry = new THREE.PlaneGeometry(size, size);
             mapPlane.position.set(bounds.centerX, 0, bounds.centerZ);
             mapPlane.userData.bounds = bounds;
+            updateCameraClipping();
             
             // Update grid to match the new plane size
             updateGrid();
@@ -1076,13 +1233,13 @@
         // Initialize Three.js with map plane
         function initThreeJS() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x87ceeb);
+            scene.background = new THREE.Color(0x0c1218);
 
             camera = new THREE.PerspectiveCamera(
                 60,
                 canvasElement.clientWidth / canvasElement.clientHeight,
                 1,
-                500000
+                DEFAULT_CAMERA_FAR
             );
             camera.position.set(5000, 3000, 5000);
             camera.lookAt(0, 0, 0);
@@ -1097,7 +1254,7 @@
             // WebGL renderer for 3D objects
             renderer = new THREE.WebGLRenderer({ canvas: canvasElement, antialias: true, alpha: true });
             renderer.setSize(canvasElement.clientWidth, canvasElement.clientHeight);
-            renderer.setClearColor(0x87ceeb, 1);
+            renderer.setClearColor(0x0c1218, 1);
 
             // Lighting
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -1176,7 +1333,8 @@
                 e.preventDefault();
                 // Adjust distance from target for zoom
                 const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
-                cameraDistance = Math.max(500, Math.min(100000, cameraDistance * zoomFactor));
+                cameraDistance = Math.max(MIN_CAMERA_DISTANCE, Math.min(getMaxCameraDistance(), cameraDistance * zoomFactor));
+                updateCameraClipping();
             });
 
             window.addEventListener('resize', () => {
@@ -1339,12 +1497,13 @@
             // Add trajectories first (so they appear under routes)
             if (state.trajectories && state.trajectories.length > 0) {
                 state.trajectories.forEach((trajectory, trajIdx) => {
+                    if (trajectory.visible === false) return;
                     const latlngs = trajectory.points ? trajectory.points.map(p => [p.lat, p.lon]) : [];
                     
                     if (latlngs.length > 0) {
                         // Draw trajectory line in black with low thickness
                         const polyline = L.polyline(latlngs, {
-                            color: '#000000',
+                            color: trajectory.color || '#000000',
                             weight: 0.8,
                             opacity: 0.5
                         }).bindPopup(`<b>${trajectory.name || 'Trajectory ' + (trajIdx + 1)}</b>`);
@@ -1358,11 +1517,12 @@
             if (state.vertiports && state.vertiports.size > 0) {
                 state.vertiports.forEach((vertiport, name) => {
                     if (!vertiport.visible) return;
+                    const vertiportColor = getVertiportColor(vertiport);
                     
                     // Create a custom icon for vertiports
                     const icon = L.divIcon({
                         className: 'vertiport-marker',
-                        html: '<div style="width: 16px; height: 16px; background: #4444ff; border: 2px solid #2222dd; border-radius: 50%; cursor: grab; display: flex; align-items: center; justify-content: center;"></div>',
+                        html: `<div style="width: 16px; height: 16px; background: ${vertiportColor}; border: 2px solid #111827; border-radius: 50%; cursor: grab; display: flex; align-items: center; justify-content: center;"></div>`,
                         iconSize: [16, 16],
                         iconAnchor: [8, 8]
                     });
@@ -1412,14 +1572,7 @@
 
                     const latlngs = route.waypoints.map(wp => [wp.lat, wp.lon]);
                     
-                    // Extract color from THREE.Color object
-                    let colorStr = '#0066cc'; // default color
-                    if (route.color) {
-                        const r = Math.round(route.color.r * 255);
-                        const g = Math.round(route.color.g * 255);
-                        const b = Math.round(route.color.b * 255);
-                        colorStr = `rgb(${r}, ${g}, ${b})`;
-                    }
+                    const colorStr = routeColorToCss(route);
                     const displayAltitude = getDisplayValue(getRouteAltitude(route));
                     const unit = getDisplayUnit();
 
@@ -1580,7 +1733,7 @@
                 const size = Math.max(bounds.width, bounds.height) * 2.0;
                 const divisions = Math.ceil(size / state.gridCellSize);
                 
-                gridHelper = new THREE.GridHelper(size, divisions, 0x444444, 0x888888);
+                gridHelper = new THREE.GridHelper(size, divisions, 0x7a869b, 0x3f4a5a);
                 gridHelper.position.set(bounds.centerX, 0, bounds.centerZ);
                 scene.add(gridHelper);
             }
@@ -1629,6 +1782,7 @@
             state.vertiports.forEach((vertiport, name) => {
                 if (!vertiport.visible) return;
                 const pos = latLonToXYZ(vertiport.lat, vertiport.lon, 0);
+                const vertiportColor = getVertiportColor(vertiport);
 
                 // Cylinder for vertiport zone
                 const geometry = new THREE.CylinderGeometry(
@@ -1638,7 +1792,7 @@
                     32
                 );
                 const material = new THREE.MeshLambertMaterial({
-                    color: 0x4444ff,
+                    color: vertiportColor,
                     transparent: true,
                     opacity: 0.3
                 });
@@ -1790,6 +1944,51 @@
 
         // Update UI
         function updateUI() {
+            // Update file layer list
+            const fileLayersSection = document.getElementById('fileLayersSection');
+            const fileLayersList = document.getElementById('fileLayersList');
+            const fileLayerCount = document.getElementById('fileLayerCount');
+            if (fileLayersSection && fileLayersList && fileLayerCount) {
+                fileLayersSection.style.display = state.fileLayers.length > 0 ? 'block' : 'none';
+                fileLayerCount.textContent = state.fileLayers.length;
+                fileLayersList.innerHTML = '';
+
+                state.fileLayers.forEach(layer => {
+                    const stats = getLayerStats(layer.id);
+                    const layerHasVisibleItems = stats.total > 0 ? stats.visible > 0 : layer.visible;
+                    const layerEl = document.createElement('div');
+                    layerEl.className = 'route-item';
+                    layerEl.innerHTML = `
+                        <div class="route-item-header">
+                            <div class="route-item-name">
+                                <div class="route-color-swatch" style="background-color: ${layer.color}"></div>
+                                <span>${escapeHtml(layer.name)}</span>
+                            </div>
+                            <div class="layer-controls">
+                                <input class="layer-color-input" type="color" value="${layer.color}" data-layer-color="${layer.id}" title="Change layer color">
+                                <button class="button-small" style="background: none; border: none; cursor: pointer;" data-layer-visibility="${layer.id}" data-layer-current-visible="${layerHasVisibleItems}">
+                                    ${layerHasVisibleItems ? 'Hide' : 'Show'}
+                                </button>
+                            </div>
+                        </div>
+                        <div class="route-item-info">
+                            ${stats.visible}/${stats.total} visible - ${stats.routeCount} routes, ${stats.vertiportCount} vertiports, ${stats.trajectoryCount} trajectories
+                        </div>
+                    `;
+
+                    const colorInput = layerEl.querySelector('[data-layer-color]');
+                    colorInput.addEventListener('change', (e) => {
+                        setFileLayerColor(e.target.dataset.layerColor, e.target.value);
+                    });
+
+                    const visibilityBtn = layerEl.querySelector('[data-layer-visibility]');
+                    visibilityBtn.addEventListener('click', (e) => {
+                        setFileLayerVisibility(e.target.dataset.layerVisibility, e.target.dataset.layerCurrentVisible !== 'true');
+                    });
+
+                    fileLayersList.appendChild(layerEl);
+                });
+            }
             
             // Update vertiports list
             const vertiportsList = document.getElementById('vertiportsList');
@@ -1800,11 +1999,12 @@
                 const displayRadius = getDisplayValue(vertiport.radius);
                 const displayHeight = getDisplayValue(vertiport.height);
                 const unit = getDisplayUnit();
+                const vertiportColor = getVertiportColor(vertiport);
                 vertiportEl.innerHTML = `
                     <div class="route-item-header">
                         <div class="route-item-name">
-                            <div class="route-color-swatch" style="background-color: #4444ff"></div>
-                            <span>${name}</span>
+                            <div class="route-color-swatch" style="background-color: ${vertiportColor}"></div>
+                            <span>${escapeHtml(name)}</span>
                         </div>
                         <button class="button-small" style="background: none; border: none; cursor: pointer;" data-vertiport-name="${name}">
                             ${vertiport.visible ? '👁️' : '🙈'}
@@ -1854,11 +2054,12 @@
                 routeEl.className = `route-item ${state.selectedRouteId === route.id ? 'selected' : ''}`;
                 const displayAltitude = getDisplayValue(getRouteAltitude(route));
                 const unit = getDisplayUnit();
+                const routeColor = routeColorToCss(route);
                 routeEl.innerHTML = `
                     <div class="route-item-header">
                         <div class="route-item-name">
-                            <div class="route-color-swatch" style="background-color: rgb(${route.color.r}, ${route.color.g}, ${route.color.b})"></div>
-                            <span>${route.name}</span>
+                            <div class="route-color-swatch" style="background-color: ${routeColor}"></div>
+                            <span>${escapeHtml(route.name)}</span>
                         </div>
                         <button class="button-small" style="background: none; border: none; cursor: pointer;" data-route-id="${route.id}">
                             ${route.visible ? '👁️' : '🙈'}
@@ -1992,6 +2193,7 @@
                 height: 760,
                 radius: 610,
                 type: 'Vertiport',
+                color: '#4444ff',
                 visible: true
             });
             state.selectedVertiportName = name;
@@ -2296,7 +2498,8 @@
                     id: `route-${Date.now()}`,
                     name: `${route.name} (Parallel ${parallelCount})`,
                     waypoints: newWaypoints,
-                    color: new THREE.Color(color.r / 255, color.g / 255, color.b / 255)
+                    color: new THREE.Color(color.r / 255, color.g / 255, color.b / 255),
+                    layerId: null
                 };
 
                 state.routes.push(newRoute);
@@ -2330,7 +2533,8 @@
                             altitude: (wp.altitude || 1219) + offset
                         };
                     }),
-                    color: new THREE.Color(color.r / 255, color.g / 255, color.b / 255)
+                    color: new THREE.Color(color.r / 255, color.g / 255, color.b / 255),
+                    layerId: null
                 };
 
                 state.routes.push(newRoute);
@@ -2342,6 +2546,7 @@
         function handleTrajectoryUpload(e) {
             const file = e.target.files[0];
             if (!file) return;
+            const layerColor = randomColorHex();
 
             const reader = new FileReader();
             reader.onload = (event) => {
@@ -2363,8 +2568,8 @@
                     return;
                 }
 
+                const fileLayer = createFileLayer(file.name, layerColor, 'trajectories');
                 const trajectoryMap = new Map();
-                const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ff6600', '#6600ff'];
 
                 lines.slice(1).forEach((line, lineIdx) => {
                     if (!line.trim()) return;
@@ -2394,27 +2599,37 @@
 
                     if (!isNaN(lat) && !isNaN(lon)) {
                         if (!trajectoryMap.has(trajId)) {
-                            const colorIdx = trajectoryMap.size % colors.length;
                             trajectoryMap.set(trajId, {
                                 name: trajId !== '0' ? `Trajectory ${trajId}` : `Trajectory from ${file.name}`,
                                 points: [],
-                                color: colors[colorIdx]
+                                color: layerColor,
+                                visible: true,
+                                layerId: fileLayer.id
                             });
                         }
                         trajectoryMap.get(trajId).points.push({ lat, lon });
                     }
                 });
 
-                // Add trajectories to state
-                state.trajectories = Array.from(trajectoryMap.values());
+                const newTrajectories = Array.from(trajectoryMap.values());
+                if (newTrajectories.length === 0) {
+                    state.fileLayers = state.fileLayers.filter(layer => layer.id !== fileLayer.id);
+                    alert('No valid trajectories found in the selected file.');
+                    return;
+                }
+
+                // Add trajectories to state without clearing previous file layers
+                state.trajectories = state.trajectories.concat(newTrajectories);
                 
                 // Switch to map view to see trajectories
                 if (state.currentView === '3d') {
                     switchView('map');
                 }
                 
+                updateUI();
                 updateMap();
-                alert(`Loaded ${state.trajectories.length} trajectory(ies) with ${state.trajectories.reduce((sum, t) => sum + t.points.length, 0)} total points`);
+                e.target.value = '';
+                alert(`Loaded ${newTrajectories.length} trajectory(ies) with ${newTrajectories.reduce((sum, t) => sum + t.points.length, 0)} total points`);
             };
             reader.readAsText(file);
         }
@@ -2422,6 +2637,7 @@
         function handleCSVUpload(e) {
             const file = e.target.files[0];
             if (!file) return;
+            const layerColor = randomColorHex();
 
             const reader = new FileReader();
             reader.onload = (event) => {
@@ -2432,13 +2648,7 @@
                 const hasAltitude = headers.includes('altitude');
                 const hasHeight = headers.includes('height');
                 const hasWidth = headers.includes('width');
-                
-                // Generate a single color for all routes in this file
-                const fileColor = {
-                    r: Math.floor(Math.random() * 256),
-                    g: Math.floor(Math.random() * 256),
-                    b: Math.floor(Math.random() * 256)
-                };
+                const fileLayer = createFileLayer(file.name, layerColor, 'routes');
                 
                 const routeMap = new Map();
                 const vertiportMap = new Map();
@@ -2489,7 +2699,9 @@
                                 height: 914,
                                 radius: 457,
                                 type,
-                                visible: true
+                                visible: true,
+                                color: layerColor,
+                                layerId: fileLayer.id
                             });
                         }
                     }
@@ -2499,8 +2711,9 @@
                             id: routeName,
                             name: routeName,
                             waypoints: [],
-                            color: new THREE.Color(fileColor.r / 255, fileColor.g / 255, fileColor.b / 255),
-                            visible: true
+                            color: new THREE.Color(layerColor),
+                            visible: true,
+                            layerId: fileLayer.id
                         });
                     }
 
@@ -2520,10 +2733,18 @@
 
                 // Merge new routes with existing routes (don't clear on new file upload)
                 const newRoutes = Array.from(routeMap.values());
+                if (newRoutes.length === 0 && vertiportMap.size === 0) {
+                    state.fileLayers = state.fileLayers.filter(layer => layer.id !== fileLayer.id);
+                    alert('No valid routes or vertiports found in the selected file.');
+                    return;
+                }
+
                 const existingIds = new Set(state.routes.map(r => r.id));
+                let addedRoutesCount = 0;
                 newRoutes.forEach(route => {
                     if (!existingIds.has(route.id)) {
                         state.routes.push(route);
+                        addedRoutesCount++;
                     }
                 });
                 
@@ -2531,12 +2752,20 @@
                 vertiportMap.forEach((vp, name) => {
                     state.vertiports.set(name, vp);
                 });
+
+                if (addedRoutesCount === 0 && vertiportMap.size === 0) {
+                    state.fileLayers = state.fileLayers.filter(layer => layer.id !== fileLayer.id);
+                    alert('No new routes were added because the route IDs already exist.');
+                    return;
+                }
                 
                 state.selectedRouteId = state.routes.length > 0 ? state.routes[0].id : null;
                 
                 // Re-attach form listeners to ensure fresh event handlers after CSV load
                 attachFormListeners();
                 updateUI();
+                fitCameraToScene();
+                e.target.value = '';
             };
             reader.readAsText(file);
         }
@@ -2561,13 +2790,16 @@
         }
 
         function clearAll() {
-            if (confirm('Are you sure you want to clear all routes and vertiports? This cannot be undone.')) {
+            if (confirm('Are you sure you want to clear all routes, vertiports, trajectories, and file layers? This cannot be undone.')) {
                 state.routes = [];
                 state.vertiports = new Map();
+                state.trajectories = [];
+                state.fileLayers = [];
                 state.selectedRouteId = null;
                 state.selectedVertiportName = null;
                 // Reset file input so files can be loaded again
                 document.getElementById('csvFile').value = '';
+                document.getElementById('trajectoryFile').value = '';
                 updateUI();
             }
         }
@@ -3254,7 +3486,8 @@
                         id: `route-${Date.now()}-${i}`,
                         name: `${route.name} (Parallel ${parallelCount})`,
                         waypoints: parallelWaypoints,
-                        color: new THREE.Color(color.r / 255, color.g / 255, color.b / 255)
+                        color: new THREE.Color(color.r / 255, color.g / 255, color.b / 255),
+                        layerId: null
                     };
 
                     state.routes.push(newRoute);
