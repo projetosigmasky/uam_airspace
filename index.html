@@ -720,26 +720,30 @@
             color: #6b7280;
         }
 
-        /* Overlap markers: shape and colour both encode the class */
+        /* Overlap markers: shape = parallel (square), crossing (diamond) or approach (circle);
+           colour = share of the segment volume that overlaps */
         .ov-marker {
             width: 12px;
             height: 12px;
             border: 2px solid #ffffff;
             box-shadow: 0 0 0 1px #111827;
-        }
-
-        .ov-marker.parallel {
-            background: #e34948;
+            background: #9ca3af;
         }
 
         .ov-marker.crossing {
-            background: #eda100;
             transform: rotate(45deg) scale(0.9);
         }
 
         .ov-marker.approach {
-            background: #9ca3af;
             border-radius: 50%;
+        }
+
+        .ov-marker.medium {
+            background: #eda100;
+        }
+
+        .ov-marker.high {
+            background: #e34948;
         }
 
         .ov-marker.ov-legend {
@@ -1009,7 +1013,7 @@
                     <button class="modal-close" id="closeOverlapModal">&times;</button>
                 </div>
 
-                <p class="ov-note">Checks the 3D volumes of one route layer (for example, the UAM corridors) against other layers (for example, REH, REA or airport-flow envelopes). Each segment is the box drawn in the 3D view: the width and height of its start waypoint, centred on the segment, with altitude interpolated along it. Counts are distinct segments, identified by their two waypoint names; segments touching a vertiport or airport are approach segments.</p>
+                <p class="ov-note">Measures how much of one route layer's volume (for example, the UAM corridors) lies inside other layers (for example, REH, REA or airport-flow envelopes). Volumes are the boxes drawn in the 3D view (width and height of the start waypoint, centred on the segment, altitude interpolated along it). The plan is divided into square cells; in each cell the altitude ranges of each layer are merged, so lanes and routes that share a waypoint segment are counted once. A segment is the pair of waypoints it joins, with all lanes and routes on it; segments touching a vertiport or airport are approach segments and are reported apart.</p>
 
                 <div class="form-group">
                     <label class="form-label" for="ovSubject">Layer to check</label>
@@ -1023,12 +1027,12 @@
 
                 <div class="ov-grid">
                     <div class="form-group">
-                        <label class="form-label" for="ovMinArea">Min. plan overlap (m²)</label>
-                        <input type="number" id="ovMinArea" class="form-input" value="1000" min="0" step="100">
+                        <label class="form-label" for="ovCell">Cell size (m)</label>
+                        <input type="number" id="ovCell" class="form-input" value="50" min="10" max="500" step="10">
                     </div>
                     <div class="form-group">
-                        <label class="form-label" for="ovTol">Vertical tolerance (ft)</label>
-                        <input type="number" id="ovTol" class="form-input" value="5" min="0" step="1">
+                        <label class="form-label" for="ovSignificant">Significant share (%)</label>
+                        <input type="number" id="ovSignificant" class="form-input" value="10" min="0" max="100" step="1">
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="ovAngle">Parallel if angle ≤ (°)</label>
@@ -1042,7 +1046,7 @@
 
                 <div class="ov-actions">
                     <button class="button-modal button-modal-submit" id="ovRunBtn">Run analysis</button>
-                    <button class="button-modal button-modal-cancel" id="ovExportBtn" disabled>Export pairs (CSV)</button>
+                    <button class="button-modal button-modal-cancel" id="ovExportBtn" disabled>Export segments (CSV)</button>
                     <label class="checkbox-group">
                         <input type="checkbox" id="ovShowMarkers">
                         <span>Show on 2D map</span>
@@ -1119,13 +1123,19 @@
 
     <!-- Overlap analysis core: pure functions without DOM access, so it can be tested on its own -->
     <script id="overlap-analysis-core">
+        // Volumetric overlap analysis: pure functions without DOM access, so it can be tested on its own.
+        // The plan is rasterised into square cells; in each cell covered by the checked layer, the
+        // altitude intervals of its segments are merged (lanes and routes that share a waypoint segment
+        // count once) and intersected with the merged intervals of each other layer.
         const OverlapAnalysis = (() => {
             const FT = 0.3048;
             const NM = 1852;
             const TERMINAL_TYPES = new Set(['Vertiport', 'Airport']);
-            const DEFAULTS = { minArea: 1000, tolFt: 5, parallelDeg: 30, heightFt: null };
-            const SWEEP_HEIGHTS_FT = [1000, 800, 600, 400, 200];
+            const DEFAULTS = { cellSize: 50, parallelDeg: 30, heightFt: null, significantPct: 10 };
+            const SWEEP_HEIGHTS_FT = [1000, 800, 600, 400, 200, 0];   // 0: 1-m slab around the axis
+            const SHARE_THRESHOLDS = [0.01, 0.10, 0.50];
             const ALL_LAYERS = 'All layers';
+            const HASH = 1000;   // coarse spatial hash for the other layers (m)
 
             // Local equirectangular plane (metres) centred on the bounding box of the given routes
             function makeProjection(routes) {
@@ -1146,215 +1156,273 @@
             }
 
             // Segment volumes as rendered: a box with the width and height of the start waypoint
-            function buildSegments(route, projection, layerName) {
+            function buildSegments(route, projection) {
                 const segments = [];
                 const wps = route.waypoints;
                 for (let i = 0; i < wps.length - 1; i++) {
                     const a = wps[i], b = wps[i + 1];
-                    const p0 = projection.toXY(a.lat, a.lon);
-                    const p1 = projection.toXY(b.lat, b.lon);
-                    const dx = p1[0] - p0[0], dy = p1[1] - p0[1];
+                    const [x0, y0] = projection.toXY(a.lat, a.lon);
+                    const [x1, y1] = projection.toXY(b.lat, b.lon);
+                    const dx = x1 - x0, dy = y1 - y0;
                     const len = Math.hypot(dx, dy);
                     if (len === 0) continue;
-                    const ux = dx / len, uy = dy / len;
-                    const width = a.width > 0 ? a.width : 457;
-                    const height = a.height > 0 ? a.height : 305;
-                    const nx = -uy * width / 2, ny = ux * width / 2;
-                    const poly = [   // counter-clockwise
-                        [p0[0] - nx, p0[1] - ny], [p1[0] - nx, p1[1] - ny],
-                        [p1[0] + nx, p1[1] + ny], [p0[0] + nx, p0[1] + ny]
-                    ];
-                    const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
                     const n0 = String(a.name ?? ''), n1 = String(b.name ?? '');
                     segments.push({
-                        layer: layerName,
                         route: route.name || route.id,
-                        index: i,
                         key: [n0, n1].sort().join(' – '),
-                        p0, ux, uy, len, poly,
-                        a0: a.altitude || 760,
-                        a1: b.altitude || 760,
-                        half: height / 2,
-                        terminal: TERMINAL_TYPES.has(a.type) || TERMINAL_TYPES.has(b.type),
-                        bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+                        x0, y0, ux: dx / len, uy: dy / len, len,
+                        hw: (a.width > 0 ? a.width : 457) / 2,
+                        half: (a.height > 0 ? a.height : 305) / 2,
+                        a0: a.altitude > 0 ? a.altitude : 760,
+                        a1: b.altitude > 0 ? b.altitude : 760,
+                        terminal: TERMINAL_TYPES.has(a.type) || TERMINAL_TYPES.has(b.type)
                     });
                 }
                 return segments;
             }
 
-            // Sutherland-Hodgman clipping of a convex polygon by a counter-clockwise convex polygon
-            function clipConvex(subject, clipPoly) {
-                let output = subject;
-                for (let i = 0; i < clipPoly.length && output.length; i++) {
-                    const A = clipPoly[i], B = clipPoly[(i + 1) % clipPoly.length];
-                    const ex = B[0] - A[0], ey = B[1] - A[1];
-                    const side = P => ex * (P[1] - A[1]) - ey * (P[0] - A[0]);
-                    const input = output;
-                    output = [];
-                    for (let j = 0; j < input.length; j++) {
-                        const P = input[j], Q = input[(j + 1) % input.length];
-                        const sp = side(P), sq = side(Q);
-                        if (sp >= 0) output.push(P);
-                        if ((sp >= 0) !== (sq >= 0)) {
-                            const t = sp / (sp - sq);
-                            output.push([P[0] + t * (Q[0] - P[0]), P[1] + t * (Q[1] - P[1])]);
-                        }
-                    }
-                }
-                return output;
-            }
-
-            function polygonArea(poly) {
-                let s = 0;
-                for (let i = 0; i < poly.length; i++) {
-                    const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
-                    s += x1 * y2 - x2 * y1;
-                }
-                return Math.abs(s) / 2;
-            }
-
-            function polygonCentroid(poly) {
-                let a = 0, cx = 0, cy = 0;
-                for (let i = 0; i < poly.length; i++) {
-                    const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
-                    const f = x1 * y2 - x2 * y1;
-                    a += f; cx += (x1 + x2) * f; cy += (y1 + y2) * f;
-                }
-                if (Math.abs(a) < 1e-9) {
-                    return [poly.reduce((s, p) => s + p[0], 0) / poly.length, poly.reduce((s, p) => s + p[1], 0) / poly.length];
-                }
-                return [cx / (3 * a), cy / (3 * a)];
-            }
-
-            // Altitude range of a segment's centreline over a polygon, and the polygon's extent along it
-            function axisRange(seg, poly) {
-                let tMin = Infinity, tMax = -Infinity;
-                poly.forEach(([x, y]) => {
-                    const t = Math.min(1, Math.max(0, ((x - seg.p0[0]) * seg.ux + (y - seg.p0[1]) * seg.uy) / seg.len));
-                    tMin = Math.min(tMin, t);
-                    tMax = Math.max(tMax, t);
-                });
-                const altA = seg.a0 + (seg.a1 - seg.a0) * tMin;
-                const altB = seg.a0 + (seg.a1 - seg.a0) * tMax;
-                return { lo: Math.min(altA, altB), hi: Math.max(altA, altB), along: (tMax - tMin) * seg.len };
-            }
-
-            // Every plan overlap between the subject layer and the obstacle layers
-            function findPairs(subjectRoutes, obstacleLayers, options = {}) {
-                const opts = { ...DEFAULTS, ...options };
-                const projection = makeProjection(subjectRoutes);
-                const subject = subjectRoutes.flatMap(route => buildSegments(route, projection, null));
-                const obstacles = obstacleLayers.flatMap(layer =>
-                    layer.routes.flatMap(route => buildSegments(route, projection, layer.name)));
-
-                const CELL = 2000;
-                const cells = bbox => {
-                    const keys = [];
-                    for (let cx = Math.floor(bbox[0] / CELL); cx <= Math.floor(bbox[2] / CELL); cx++) {
-                        for (let cy = Math.floor(bbox[1] / CELL); cy <= Math.floor(bbox[3] / CELL); cy++) {
-                            keys.push(cx + ',' + cy);
-                        }
-                    }
-                    return keys;
-                };
-                const grid = new Map();
-                obstacles.forEach((o, idx) => cells(o.bbox).forEach(k => {
-                    if (!grid.has(k)) grid.set(k, []);
-                    grid.get(k).push(idx);
+            function bbox(s) {
+                const xs = [], ys = [];
+                [0, 1].forEach(k => [-1, 1].forEach(m => {
+                    xs.push(s.x0 + s.len * s.ux * k + s.hw * s.uy * m);
+                    ys.push(s.y0 + s.len * s.uy * k - s.hw * s.ux * m);
                 }));
-
-                const pairs = [];
-                const seen = new Int32Array(obstacles.length).fill(-1);
-                subject.forEach((s, si) => {
-                    cells(s.bbox).forEach(k => (grid.get(k) || []).forEach(idx => {
-                        if (seen[idx] === si) return;
-                        seen[idx] = si;
-                        const o = obstacles[idx];
-                        if (o.bbox[0] > s.bbox[2] || o.bbox[2] < s.bbox[0] || o.bbox[1] > s.bbox[3] || o.bbox[3] < s.bbox[1]) return;
-                        const inter = clipConvex(s.poly, o.poly);
-                        if (inter.length < 3) return;
-                        const area = polygonArea(inter);
-                        if (area <= opts.minArea) return;
-                        const rs = axisRange(s, inter), ro = axisRange(o, inter);
-                        const centroid = polygonCentroid(inter);
-                        const [lat, lon] = projection.toLatLon(centroid[0], centroid[1]);
-                        pairs.push({
-                            subjectRoute: s.route, subjectIndex: s.index, key: s.key, terminal: s.terminal,
-                            layer: o.layer, obstacleRoute: o.route, obstacleIndex: o.index,
-                            area, along: rs.along,
-                            angle: Math.acos(Math.min(1, Math.abs(s.ux * o.ux + s.uy * o.uy))) * 180 / Math.PI,
-                            axisLo: rs.lo, axisHi: rs.hi, subjectHalf: s.half,
-                            obsLo: ro.lo - o.half, obsHi: ro.hi + o.half,
-                            lat, lon
-                        });
-                    }));
-                });
-                return { pairs, subject };
+                return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
             }
 
-            function verticalOverlap(p, half) {
-                return Math.min(p.axisHi + half, p.obsHi) - Math.max(p.axisLo - half, p.obsLo);
+            // Axis parameter t of the cell centre if it lies inside the footprint of s, else -1
+            function insideT(s, i, j, cell) {
+                const cx = (i + 0.5) * cell - s.x0, cy = (j + 0.5) * cell - s.y0;
+                const along = cx * s.ux + cy * s.uy;
+                const across = -cx * s.uy + cy * s.ux;
+                return (along >= 0 && along <= s.len && Math.abs(across) <= s.hw) ? along / s.len : -1;
             }
 
-            // Vertical gap between the corridor axis and the other volume; -1 when the axis lies inside it
-            function axisGap(p) {
-                if (p.obsLo >= p.axisHi) return p.obsLo - p.axisHi;
-                if (p.axisLo >= p.obsHi) return p.axisLo - p.obsHi;
-                return -1;
+            const cellKey = (i, j) => (i + 1e6) * 2.1e6 + (j + 1e6);
+
+            function union(ivs) {
+                ivs.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+                const out = [];
+                for (const [lo, hi] of ivs) {
+                    if (out.length && lo <= out[out.length - 1][1]) {
+                        out[out.length - 1][1] = Math.max(out[out.length - 1][1], hi);
+                    } else {
+                        out.push([lo, hi]);
+                    }
+                }
+                return out;
             }
 
-            function summarise(result, layerNames, options = {}) {
+            function interLen(a, b) {
+                let i = 0, j = 0, total = 0;
+                while (i < a.length && j < b.length) {
+                    const lo = Math.max(a[i][0], b[j][0]), hi = Math.min(a[i][1], b[j][1]);
+                    if (hi > lo) total += hi - lo;
+                    if (a[i][1] < b[j][1]) i++; else j++;
+                }
+                return total;
+            }
+
+            const total = ivs => ivs.reduce((s, [lo, hi]) => s + hi - lo, 0);
+
+            // Rasterise the checked layer and collect, per covered cell, the intervals of the other
+            // layers. The result does not depend on the corridor height, so one preparation serves
+            // every evaluation (stored heights, test height, height sweep).
+            function prepare(subjectRoutes, obstacleLayers, options = {}) {
                 const opts = { ...DEFAULTS, ...options };
-                const tol = opts.tolFt * FT;
-                const testHalf = opts.heightFt ? opts.heightFt * FT / 2 : null;
-                const halfOf = p => (testHalf !== null ? testHalf : p.subjectHalf);
-                const isParallel = p => p.angle <= opts.parallelDeg;
-
-                const overlapping = result.pairs
-                    .map(p => ({ ...p, vertical: verticalOverlap(p, halfOf(p)), parallel: isParallel(p), gap: axisGap(p) }))
-                    .filter(p => p.vertical > tol);
-
-                const rows = layerNames.concat([ALL_LAYERS]).map(name => {
-                    const inLayer = p => name === ALL_LAYERS || p.layer === name;
-                    const ps = overlapping.filter(inLayer);
-                    const cruise = ps.filter(p => !p.terminal);
-                    const keys = new Set(cruise.map(p => p.key));
-                    const parallelKeys = new Set(cruise.filter(p => p.parallel).map(p => p.key));
-                    const planCruise = result.pairs.filter(p => inLayer(p) && !p.terminal);
-                    const gaps = planCruise.map(axisGap);
-                    const positive = gaps.filter(g => g > 0);
-                    const longest = cruise.filter(p => p.parallel).reduce((best, p) => (!best || p.along > best.along ? p : best), null);
-                    return {
-                        layer: name,
-                        cruise: keys.size,
-                        parallel: parallelKeys.size,
-                        crossingOnly: keys.size - parallelKeys.size,
-                        approach: new Set(ps.filter(p => p.terminal).map(p => p.key)).size,
-                        inside: new Set(planCruise.filter((p, i) => gaps[i] < 0).map(p => p.key)).size,
-                        minGapFt: positive.length ? Math.min(...positive) / FT : null,
-                        longestParallel: longest
-                    };
+                const cell = opts.cellSize;
+                const projection = makeProjection(subjectRoutes);
+                const subject = subjectRoutes.flatMap(route => buildSegments(route, projection));
+                const keys = Array.from(new Set(subject.map(s => s.key))).sort();
+                const keyIndex = new Map(keys.map((k, n) => [k, n]));
+                const keyTerminal = new Map(subject.map(s => [s.key, s.terminal]));
+                const keyRoutes = new Map();
+                subject.forEach(s => {
+                    if (!keyRoutes.has(s.key)) keyRoutes.set(s.key, new Set());
+                    keyRoutes.get(s.key).add(s.route);
                 });
 
-                const cruisePlan = result.pairs.filter(p => !p.terminal);
-                const sweep = SWEEP_HEIGHTS_FT.map(heightFt => {
-                    const half = heightFt * FT / 2;
-                    const hit = cruisePlan.filter(p => verticalOverlap(p, half) > tol);
-                    return {
-                        heightFt,
-                        cruise: new Set(hit.map(p => p.key)).size,
-                        parallel: new Set(hit.filter(isParallel).map(p => p.key)).size
-                    };
+                const cells = new Map();
+                subject.forEach(s => {
+                    const [x0, y0, x1, y1] = bbox(s);
+                    const kid = keyIndex.get(s.key);
+                    for (let i = Math.floor(x0 / cell); i <= Math.floor(x1 / cell); i++) {
+                        for (let j = Math.floor(y0 / cell); j <= Math.floor(y1 / cell); j++) {
+                            const t = insideT(s, i, j, cell);
+                            if (t < 0) continue;
+                            const alt = s.a0 + (s.a1 - s.a0) * t;
+                            const ck = cellKey(i, j);
+                            let c = cells.get(ck);
+                            if (!c) {
+                                c = { i, j, entries: new Map(), obs: [] };
+                                cells.set(ck, c);
+                            }
+                            const dedupe = kid + '|' + alt.toFixed(1);
+                            if (!c.entries.has(dedupe)) {
+                                c.entries.set(dedupe, { alt, half: s.half, ux: s.ux, uy: s.uy, terminal: s.terminal, kid });
+                            }
+                        }
+                    }
+                });
+
+                const obstacles = obstacleLayers.flatMap(layer =>
+                    layer.routes.flatMap(route => buildSegments(route, projection).map(s => ({ ...s, layer: layer.name }))));
+                const hash = new Map();
+                obstacles.forEach((o, idx) => {
+                    const [x0, y0, x1, y1] = bbox(o);
+                    for (let hx = Math.floor(x0 / HASH); hx <= Math.floor(x1 / HASH); hx++) {
+                        for (let hy = Math.floor(y0 / HASH); hy <= Math.floor(y1 / HASH); hy++) {
+                            const hk = cellKey(hx, hy);
+                            if (!hash.has(hk)) hash.set(hk, []);
+                            hash.get(hk).push(idx);
+                        }
+                    }
+                });
+                cells.forEach(c => {
+                    const hk = cellKey(Math.floor((c.i + 0.5) * cell / HASH), Math.floor((c.j + 0.5) * cell / HASH));
+                    (hash.get(hk) || []).forEach(idx => {
+                        const o = obstacles[idx];
+                        const t = insideT(o, c.i, c.j, cell);
+                        if (t < 0) return;
+                        const alt = o.a0 + (o.a1 - o.a0) * t;
+                        c.obs.push({ layer: o.layer, lo: alt - o.half, hi: alt + o.half, ux: o.ux, uy: o.uy });
+                    });
                 });
 
                 return {
-                    rows, sweep, overlapping, opts,
-                    cruiseTotal: new Set(result.subject.filter(s => !s.terminal).map(s => s.key)).size,
-                    approachTotal: new Set(result.subject.filter(s => s.terminal).map(s => s.key)).size
+                    cells, keys, keyTerminal, keyRoutes, projection, opts,
+                    layerNames: obstacleLayers.map(layer => layer.name)
                 };
             }
 
-            return { findPairs, summarise, FT, NM, DEFAULTS, ALL_LAYERS };
+            // Volumes for one corridor height: stored heights, or heightFt for every segment
+            function evaluate(prep, heightFt = null, options = {}) {
+                const opts = { ...prep.opts, ...options };
+                const area = opts.cellSize * opts.cellSize;
+                const cosParallel = Math.cos(opts.parallelDeg * Math.PI / 180);
+                const fixedHalf = heightFt === null ? null : (heightFt > 0 ? heightFt * FT / 2 : 0.5);
+                const layers = prep.layerNames.concat([ALL_LAYERS]);
+                const volume = { cruise: 0, approach: 0 };
+                const overlap = { cruise: {}, approach: {} };
+                const parallel = {};
+                layers.forEach(L => { overlap.cruise[L] = 0; overlap.approach[L] = 0; parallel[L] = 0; });
+                const nk = prep.keys.length;
+                const kVol = new Float64Array(nk), kOv = new Float64Array(nk), kPar = new Float64Array(nk);
+                const kX = new Float64Array(nk), kY = new Float64Array(nk);
+                const kLayer = prep.layerNames.map(() => new Float64Array(nk));
+
+                prep.cells.forEach(c => {
+                    const byLayer = new Map();
+                    c.obs.forEach(o => {
+                        if (!byLayer.has(o.layer)) byLayer.set(o.layer, []);
+                        byLayer.get(o.layer).push([o.lo, o.hi]);
+                    });
+                    const O = new Map(Array.from(byLayer, ([L, ivs]) => [L, union(ivs)]));
+                    const Oall = union(c.obs.map(o => [o.lo, o.hi]));
+                    const cx = (c.i + 0.5) * opts.cellSize, cy = (c.j + 0.5) * opts.cellSize;
+
+                    for (const group of ['cruise', 'approach']) {
+                        const ents = Array.from(c.entries.values()).filter(e => e.terminal === (group === 'approach'));
+                        if (!ents.length) continue;
+                        const ivs = ents.map(e => {
+                            const h = fixedHalf === null ? e.half : fixedHalf;
+                            return [e.alt - h, e.alt + h];
+                        });
+                        const U = union(ivs.map(iv => iv.slice()));
+                        volume[group] += total(U) * area;
+                        if (c.obs.length) {
+                            O.forEach((OL, L) => { overlap[group][L] += interLen(U, OL) * area; });
+                            overlap[group][ALL_LAYERS] += interLen(U, Oall) * area;
+                        }
+
+                        // parallel: an overlapping pair of this cell is within parallelDeg
+                        let parallelAny = false;
+                        if (group === 'cruise' && c.obs.length) {
+                            O.forEach((OL, L) => {
+                                const par = ents.some((e, n) => c.obs.some(o => o.layer === L &&
+                                    Math.min(ivs[n][1], o.hi) > Math.max(ivs[n][0], o.lo) &&
+                                    Math.abs(e.ux * o.ux + e.uy * o.uy) >= cosParallel));
+                                if (par) {
+                                    parallel[L] += interLen(U, OL) * area;
+                                    parallelAny = true;
+                                }
+                            });
+                            if (parallelAny) parallel[ALL_LAYERS] += interLen(U, Oall) * area;
+                        }
+
+                        // per segment (both lanes and all routes that share it)
+                        const kids = Array.from(new Set(ents.map(e => e.kid)));
+                        kids.forEach(kid => {
+                            const own = [], ownPar = [];
+                            ents.forEach((e, n) => {
+                                if (e.kid !== kid) return;
+                                own.push(ivs[n].slice());
+                                ownPar.push([e, ivs[n]]);
+                            });
+                            const Uk = union(own);
+                            kVol[kid] += total(Uk) * area;
+                            if (!c.obs.length) return;
+                            const ov = interLen(Uk, Oall) * area;
+                            kOv[kid] += ov;
+                            kX[kid] += ov * cx;
+                            kY[kid] += ov * cy;
+                            prep.layerNames.forEach((L, li) => {
+                                if (O.has(L)) kLayer[li][kid] += interLen(Uk, O.get(L)) * area;
+                            });
+                            const par = ownPar.some(([e, iv]) => c.obs.some(o =>
+                                Math.min(iv[1], o.hi) > Math.max(iv[0], o.lo) &&
+                                Math.abs(e.ux * o.ux + e.uy * o.uy) >= cosParallel));
+                            if (par) kPar[kid] += ov;
+                        });
+                    }
+                });
+
+                const segments = prep.keys.map((key, kid) => {
+                    const [lat, lon] = kOv[kid] > 0 ? prep.projection.toLatLon(kX[kid] / kOv[kid], kY[kid] / kOv[kid]) : [null, null];
+                    return {
+                        key, approach: prep.keyTerminal.get(key), routes: prep.keyRoutes.get(key).size,
+                        volume: kVol[kid], overlap: kOv[kid], share: kVol[kid] ? kOv[kid] / kVol[kid] : 0,
+                        parallelShare: kOv[kid] ? kPar[kid] / kOv[kid] : 0,
+                        byLayer: Object.fromEntries(prep.layerNames.map((L, li) => [L, kLayer[li][kid]])),
+                        lat, lon
+                    };
+                });
+                const cruise = segments.filter(s => !s.approach);
+                const significant = opts.significantPct / 100;
+                const rows = layers.map((L, li) => {
+                    const shares = cruise.map(s => (L === ALL_LAYERS ? s.share : (s.volume ? s.byLayer[L] / s.volume : 0)));
+                    const ov = overlap.cruise[L];
+                    return {
+                        layer: L,
+                        overlap: ov,
+                        pct: volume.cruise ? 100 * ov / volume.cruise : 0,
+                        parallelPct: ov ? 100 * parallel[L] / ov : 0,
+                        segmentsAny: shares.filter(v => v > 0).length,
+                        segmentsAtLeast: SHARE_THRESHOLDS.map(t => shares.filter(v => v >= t).length),
+                        significant: shares.filter(v => v >= significant).length
+                    };
+                });
+                return {
+                    heightFt, volume: volume.cruise, approachVolume: volume.approach,
+                    approachPct: volume.approach ? 100 * overlap.approach[ALL_LAYERS] / volume.approach : 0,
+                    nCruise: cruise.length, nApproach: segments.length - cruise.length,
+                    rows, segments: segments.sort((p, q) => q.overlap - p.overlap), opts
+                };
+            }
+
+            function analyse(subjectRoutes, obstacleLayers, options = {}) {
+                const prep = prepare(subjectRoutes, obstacleLayers, options);
+                const main = evaluate(prep, prep.opts.heightFt);
+                main.sweep = SWEEP_HEIGHTS_FT.map(h => {
+                    const r = evaluate(prep, h);
+                    const all = r.rows[r.rows.length - 1];
+                    return { heightFt: h, pct: all.pct, significant: all.significant };
+                });
+                main.cellCount = prep.cells.size;
+                return main;
+            }
+
+            return { analyse, prepare, evaluate, FT, NM, DEFAULTS, SHARE_THRESHOLDS, ALL_LAYERS };
         })();
     </script>
 
@@ -3931,7 +3999,7 @@
 
         // Overlap analysis (UI). The geometry is in the OverlapAnalysis block above; results are a
         // snapshot of the loaded routes at the time of the run.
-        let overlapState = { result: null, summary: null, subjectName: '', elapsed: 0, showMarkers: false };
+        let overlapState = { summary: null, subjectName: '', elapsed: 0, showMarkers: false };
 
         function overlapRouteLayers() {
             return state.fileLayers.filter(layer => layer.type === 'routes' && state.routes.some(r => r.layerId === layer.id));
@@ -3972,15 +4040,16 @@
         }
 
         function readOverlapOptions() {
-            const numberOr = (id, fallback) => {
+            const numberOr = (id, fallback, min, max) => {
                 const value = parseFloat(document.getElementById(id).value);
-                return Number.isFinite(value) && value >= 0 ? value : fallback;
+                return Number.isFinite(value) && value >= min && value <= max ? value : fallback;
             };
             const height = parseFloat(document.getElementById('ovHeight').value);
+            const D = OverlapAnalysis.DEFAULTS;
             return {
-                minArea: numberOr('ovMinArea', OverlapAnalysis.DEFAULTS.minArea),
-                tolFt: numberOr('ovTol', OverlapAnalysis.DEFAULTS.tolFt),
-                parallelDeg: numberOr('ovAngle', OverlapAnalysis.DEFAULTS.parallelDeg),
+                cellSize: numberOr('ovCell', D.cellSize, 10, 500),
+                significantPct: numberOr('ovSignificant', D.significantPct, 0, 100),
+                parallelDeg: numberOr('ovAngle', D.parallelDeg, 0, 90),
                 heightFt: Number.isFinite(height) && height > 0 ? height : null
             };
         }
@@ -3992,133 +4061,140 @@
                 alert('Select at least one layer to check against.');
                 return;
             }
-            const options = readOverlapOptions();
             const obstacleLayers = obstacleIds.map(id => ({
                 name: layerNameById(id),
                 routes: state.routes.filter(route => route.layerId === id)
             }));
             const started = performance.now();
-            const result = OverlapAnalysis.findPairs(state.routes.filter(route => route.layerId === subjectId), obstacleLayers, options);
-            const summary = OverlapAnalysis.summarise(result, obstacleLayers.map(layer => layer.name), options);
-            overlapState = { ...overlapState, result, summary, subjectName: layerNameById(subjectId), elapsed: performance.now() - started };
+            const summary = OverlapAnalysis.analyse(state.routes.filter(route => route.layerId === subjectId), obstacleLayers, readOverlapOptions());
+            overlapState = { ...overlapState, summary, subjectName: layerNameById(subjectId), elapsed: performance.now() - started };
             renderOverlapResults();
             updateOverlapStatistics();
             if (map2D) updateMap();
         }
 
+        const KM3 = 1e9;
+        const fmtPct = v => (v >= 10 ? v.toFixed(1) : v.toFixed(2)) + '%';
+
+        function shareClass(share, significant) {
+            if (share >= 0.5) return 'high';
+            if (share >= significant) return 'medium';
+            return 'low';
+        }
+
         function renderOverlapResults() {
-            const summary = overlapState.summary;
+            const s = overlapState.summary;
             const container = document.getElementById('ovResults');
-            if (!summary) {
+            if (!s) {
                 container.innerHTML = '';
                 document.getElementById('ovExportBtn').disabled = true;
                 return;
             }
-            const total = summary.rows[summary.rows.length - 1];
-            const heightText = summary.opts.heightFt ? `${summary.opts.heightFt} ft for every segment (test value)` : 'stored heights';
-            const layerRows = summary.rows.map(row => `
+            const sig = s.opts.significantPct;
+            const total = s.rows[s.rows.length - 1];
+            const heightText = s.opts.heightFt ? `${s.opts.heightFt} ft for every segment (test value)` : 'stored heights';
+            const layerRows = s.rows.map(row => `
                 <tr class="${row.layer === OverlapAnalysis.ALL_LAYERS ? 'ov-total' : ''}">
-                    <td>${escapeHtml(row.layer)}</td><td>${row.cruise}</td><td>${row.parallel}</td>
-                    <td>${row.crossingOnly}</td><td>${row.approach}</td><td>${row.inside}</td>
+                    <td>${escapeHtml(row.layer)}</td>
+                    <td>${(row.overlap / KM3).toFixed(2)}</td>
+                    <td>${fmtPct(row.pct)}</td>
+                    <td>${row.overlap > 0 ? row.parallelPct.toFixed(0) + '%' : '–'}</td>
+                    <td>${row.segmentsAny}</td>
+                    ${row.segmentsAtLeast.map(n => `<td>${n}</td>`).join('')}
                 </tr>`).join('');
-
-            let gapText = 'No other plan overlaps remain.';
-            if (total.minGapFt !== null) {
-                const g = total.minGapFt;
-                gapText = `For the remaining plan overlaps, the smallest vertical gap between corridor axis and volume is ${g.toFixed(0)} ft, so a corridor up to ${(2 * g).toFixed(0)} ft high (±${g.toFixed(0)} ft) would clear them.`;
-            }
-            const longest = total.longestParallel;
-            const longestText = longest
-                ? `Longest parallel overlap: ${(longest.along / OverlapAnalysis.NM).toFixed(2)} NM (${escapeHtml(longest.subjectRoute)}, ${escapeHtml(longest.key)}, with ${escapeHtml(longest.layer)} ${escapeHtml(longest.obstacleRoute)}).`
-                : 'No parallel overlaps.';
+            const top = s.segments.filter(seg => !seg.approach && seg.overlap > 0).slice(0, 5).map(seg => `
+                <tr>
+                    <td>${escapeHtml(seg.key)}</td>
+                    <td>${(seg.overlap / KM3).toFixed(3)}</td>
+                    <td>${(100 * seg.share).toFixed(0)}%</td>
+                    <td>${escapeHtml(Object.entries(seg.byLayer).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([L]) => L).join(', '))}</td>
+                </tr>`).join('');
+            const sweepLabel = h => (h === 0 ? 'axis only' : h);
+            const axis = s.sweep.find(x => x.heightFt === 0);
 
             container.innerHTML = `
-                <p class="ov-note"><strong>${escapeHtml(overlapState.subjectName)}</strong>: ${summary.cruiseTotal} cruise and ${summary.approachTotal} approach segments; corridor height: ${heightText}. ${summary.overlapping.length} overlapping volume pairs (${Math.round(overlapState.elapsed)} ms).</p>
+                <p class="ov-note"><strong>${escapeHtml(overlapState.subjectName)}</strong>: ${s.nCruise} cruise and ${s.nApproach} approach segments; cruise corridor volume ${(s.volume / KM3).toFixed(1)} km³; corridor height: ${heightText}; ${s.cellCount.toLocaleString()} cells of ${s.opts.cellSize} m (${Math.round(overlapState.elapsed)} ms).</p>
                 <table class="ov-table">
                     <thead><tr>
-                        <th>Layer</th><th>Cruise segments with overlap</th><th>Parallel</th><th>Crossing only</th><th>Approach segments with overlap</th><th>Axis inside a volume</th>
+                        <th>Layer</th><th>Overlap (km³)</th><th>% of corridor volume</th><th>Parallel (% of overlap)</th>
+                        <th>Segments with any overlap</th>${OverlapAnalysis.SHARE_THRESHOLDS.map(t => `<th>Segments ≥ ${t * 100}%</th>`).join('')}
                     </tr></thead>
                     <tbody>${layerRows}</tbody>
                 </table>
-                <p class="ov-note">An overlap is parallel when the two segments are within ${summary.opts.parallelDeg}° of each other, otherwise a crossing; a cruise segment counts as parallel if any of its overlaps is parallel. ${total.inside} cruise segments have their axis inside another volume, so no corridor height removes those overlaps. ${gapText} ${longestText}</p>
+                <p class="ov-note">Segment columns count cruise segments by the share of their own volume that lies inside the layer. Overlap is parallel where an overlapping pair is within ${s.opts.parallelDeg}° of each other, otherwise crossing. Approach segments: ${fmtPct(s.approachPct)} of their volume overlaps.</p>
                 <table class="ov-table">
-                    <thead><tr><th>Corridor height (ft)</th>${summary.sweep.map(s => `<th>${s.heightFt}</th>`).join('')}</tr></thead>
-                    <tbody><tr><td>Cruise segments with overlap <span class="ov-muted">(parallel)</span></td>${summary.sweep.map(s => `<td>${s.cruise} <span class="ov-muted">(${s.parallel})</span></td>`).join('')}</tr></tbody>
+                    <thead><tr><th>Corridor height (ft)</th>${s.sweep.map(x => `<th>${sweepLabel(x.heightFt)}</th>`).join('')}</tr></thead>
+                    <tbody>
+                        <tr><td>% of corridor volume overlapping</td>${s.sweep.map(x => `<td>${fmtPct(x.pct)}</td>`).join('')}</tr>
+                        <tr><td>Segments ≥ ${sig}% of their volume</td>${s.sweep.map(x => `<td>${x.significant}</td>`).join('')}</tr>
+                    </tbody>
                 </table>
-                <p class="ov-note">Map markers (one per segment, layer and class):<span class="ov-marker ov-legend parallel"></span>parallel<span class="ov-marker ov-legend crossing"></span>crossing<span class="ov-marker ov-legend approach"></span>approach segment.</p>`;
+                <p class="ov-note">${axis ? `${fmtPct(axis.pct)} of the corridor axis lies inside other volumes; reducing the corridor height cannot remove that part.` : ''}</p>
+                ${top ? `<table class="ov-table">
+                    <thead><tr><th>Largest overlaps (cruise)</th><th>km³</th><th>Share</th><th>Layers</th></tr></thead>
+                    <tbody>${top}</tbody>
+                </table>` : ''}
+                <p class="ov-note">Map markers, one per segment with at least ${sig}% of its volume overlapping, at the centre of the overlap:<span class="ov-marker ov-legend parallel medium"></span>mostly parallel<span class="ov-marker ov-legend crossing medium"></span>mostly crossing<span class="ov-marker ov-legend approach medium"></span>approach segment; amber: ${sig}–50%, red: ≥ 50% of the segment volume.</p>`;
             document.getElementById('ovExportBtn').disabled = false;
         }
 
         function updateOverlapStatistics() {
             const el = document.getElementById('statOverlaps');
-            const summary = overlapState.summary;
-            if (!summary) {
+            const s = overlapState.summary;
+            if (!s) {
                 el.style.display = 'none';
                 return;
             }
-            const total = summary.rows[summary.rows.length - 1];
-            el.textContent = `Overlaps: ${total.cruise}/${summary.cruiseTotal} cruise segments (${total.parallel} parallel)`;
+            const total = s.rows[s.rows.length - 1];
+            el.textContent = `Overlap: ${fmtPct(total.pct)} of corridor volume (${total.significant} of ${s.nCruise} segments ≥ ${s.opts.significantPct}%)`;
             el.style.display = 'block';
-        }
-
-        function overlapClass(pair) {
-            if (pair.terminal) return 'approach';
-            return pair.parallel ? 'parallel' : 'crossing';
         }
 
         function drawOverlapMarkers() {
             if (!map2D || !map2D.overlapMarkers) return;
             map2D.overlapMarkers.clearLayers();
-            if (!overlapState.showMarkers || !overlapState.summary) return;
-
-            // One marker per segment, obstacle layer and class, at the mean position of its overlaps
-            const groups = new Map();
-            overlapState.summary.overlapping.forEach(pair => {
-                const cls = overlapClass(pair);
-                const k = `${pair.key}|${pair.layer}|${cls}`;
-                if (!groups.has(k)) groups.set(k, { pair, cls, lat: 0, lon: 0, n: 0, vertical: 0, along: 0, routes: new Set() });
-                const g = groups.get(k);
-                g.lat += pair.lat; g.lon += pair.lon; g.n++;
-                g.vertical = Math.max(g.vertical, pair.vertical);
-                g.along = Math.max(g.along, pair.along);
-                g.routes.add(pair.obstacleRoute);
-            });
-            groups.forEach(g => {
+            const s = overlapState.summary;
+            if (!overlapState.showMarkers || !s) return;
+            const significant = s.opts.significantPct / 100;
+            s.segments.filter(seg => seg.overlap > 0 && seg.share >= significant && seg.lat !== null).forEach(seg => {
+                const shape = seg.approach ? 'approach' : (seg.parallelShare >= 0.5 ? 'parallel' : 'crossing');
                 const icon = L.divIcon({
                     className: 'ov-marker-icon',
-                    html: `<div class="ov-marker ${g.cls}"></div>`,
+                    html: `<div class="ov-marker ${shape} ${shareClass(seg.share, significant)}"></div>`,
                     iconSize: [16, 16],
                     iconAnchor: [8, 8]
                 });
-                const marker = L.marker([g.lat / g.n, g.lon / g.n], { icon, pane: 'overlapPane', keyboard: false }).bindPopup(`<b>${escapeHtml(g.pair.key)}</b><br>${g.cls} overlap with ${escapeHtml(g.pair.layer)}: ${escapeHtml(Array.from(g.routes).join(', '))}<br>vertical overlap up to ${Math.round(g.vertical / OverlapAnalysis.FT)} ft; along-track up to ${(g.along / OverlapAnalysis.NM).toFixed(2)} NM`);
-                map2D.overlapMarkers.addLayer(marker);
+                const layers = Object.entries(seg.byLayer).filter(([, v]) => v > 0)
+                    .map(([L, v]) => `${escapeHtml(L)}: ${(v / KM3).toFixed(3)} km³`).join('<br>');
+                L.marker([seg.lat, seg.lon], { icon, pane: 'overlapPane', keyboard: false })
+                    .bindPopup(`<b>${escapeHtml(seg.key)}</b>${seg.approach ? ' (approach)' : ''}<br>${(100 * seg.share).toFixed(1)}% of its volume overlaps (${(seg.overlap / KM3).toFixed(3)} of ${(seg.volume / KM3).toFixed(3)} km³), ${(100 * seg.parallelShare).toFixed(0)}% parallel<br>${layers}`)
+                    .addTo(map2D.overlapMarkers);
             });
         }
 
         function exportOverlapCSV() {
-            const summary = overlapState.summary;
-            if (!summary) return;
-            const FT = OverlapAnalysis.FT;
+            const s = overlapState.summary;
+            if (!s) return;
             const quote = v => `"${String(v).replace(/"/g, '""')}"`;
-            const header = 'subject_route,segment,waypoints,segment_type,class,layer,obstacle_route,obstacle_segment,angle_deg,along_track_nm,plan_overlap_m2,vertical_overlap_ft,axis_lo_ft,axis_hi_ft,obstacle_lo_ft,obstacle_hi_ft,axis_gap_ft,lat,lon';
-            const lines = summary.overlapping.map(p => [
-                quote(p.subjectRoute), p.subjectIndex + 1, quote(p.key), p.terminal ? 'approach' : 'cruise', overlapClass(p),
-                quote(p.layer), quote(p.obstacleRoute), p.obstacleIndex + 1, p.angle.toFixed(1),
-                (p.along / OverlapAnalysis.NM).toFixed(3), Math.round(p.area), (p.vertical / FT).toFixed(0),
-                (p.axisLo / FT).toFixed(0), (p.axisHi / FT).toFixed(0), (p.obsLo / FT).toFixed(0), (p.obsHi / FT).toFixed(0),
-                p.gap < 0 ? 'inside' : (p.gap / FT).toFixed(0), p.lat.toFixed(6), p.lon.toFixed(6)
-            ].join(','));
+            const layerNames = s.rows.slice(0, -1).map(row => row.layer);
+            const header = ['segment', 'segment_type', 'routes', 'volume_km3', 'overlap_km3', 'overlap_share', 'parallel_share']
+                .concat(layerNames.map(L => quote(`overlap_km3_${L}`)), ['lat', 'lon']).join(',');
+            const lines = s.segments.map(seg => [
+                quote(seg.key), seg.approach ? 'approach' : 'cruise', seg.routes,
+                (seg.volume / KM3).toFixed(5), (seg.overlap / KM3).toFixed(5), seg.share.toFixed(4), seg.parallelShare.toFixed(4)
+            ].concat(layerNames.map(L => (seg.byLayer[L] / KM3).toFixed(5)),
+                [seg.lat === null ? '' : seg.lat.toFixed(6), seg.lon === null ? '' : seg.lon.toFixed(6)]).join(','));
             const blob = new Blob([[header].concat(lines).join('\n')], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'uam_overlaps.csv';
+            a.download = 'uam_overlap_segments.csv';
             a.click();
             URL.revokeObjectURL(url);
         }
 
         function resetOverlapAnalysis() {
-            overlapState = { ...overlapState, result: null, summary: null };
+            overlapState = { ...overlapState, summary: null };
             renderOverlapResults();
             updateOverlapStatistics();
         }

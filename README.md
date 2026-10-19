@@ -24,10 +24,10 @@ A web-based interactive dashboard for designing and visualizing Urban Air Mobili
 - Interactive corridor analysis
 
 📐 **Overlap Analysis**
-- Checks the 3D volumes of one route layer (e.g. UAM corridors) against other layers (e.g. REH, REA, airport-flow envelopes)
-- Reports, per layer, the cruise segments with overlap, split into *parallel* (segments within a set angle, default 30°) and *crossing only*, plus overlapping approach segments and segments whose axis lies inside another volume
-- Height sweep (1,000 to 200 ft) and the smallest axis-to-volume gap, i.e. the corridor height that would clear the remaining overlaps
-- Optional markers on the 2D map (red square: parallel, amber diamond: crossing, grey circle: approach) and CSV export of every overlapping pair
+- Measures how much of one route layer's volume (e.g. UAM corridors) lies inside other layers (e.g. REH, REA, airport-flow envelopes)
+- Volumetric: the plan is divided into square cells (default 50 m) and, in each cell, the altitude ranges of each layer are merged, so lanes and routes that share a waypoint segment are counted once
+- Per layer: overlap volume, share of the corridor volume, share of the overlap that runs parallel (within 30° by default) rather than crossing, and the number of segments with at least 1%, 10% and 50% of their own volume overlapping
+- Corridor-height sweep (1,000 ft down to the axis alone), largest overlaps by segment, map markers for segments above a chosen share, and CSV export per segment
 
 ## Usage
 
@@ -35,7 +35,7 @@ A web-based interactive dashboard for designing and visualizing Urban Air Mobili
 2. **Visualize**: The dashboard automatically renders your corridors in 3D
 3. **Explore**: Use the map and 3D viewport to analyze different aspects of your network
 4. **Manage Routes**: Add, remove, or modify routes in the routes panel
-5. **Check Overlaps**: Load the corridors and the airspace structures as separate files, then open *Batch Operations → Overlap Analysis*. Segments are the boxes drawn in the 3D view (start-waypoint width and height, centred on the segment); a pair counts when the plan overlap exceeds 1,000 m² and the vertical overlap exceeds 5 ft (both adjustable). Segments touching a vertiport or airport are approach segments.
+5. **Check Overlaps**: Load the corridors and the airspace structures as separate files, then open *Batch Operations → Overlap Analysis*. Volumes are the boxes drawn in the 3D view (start-waypoint width and height, centred on the segment, altitude interpolated along it). A segment is the pair of waypoints it joins, with all lanes and routes on it; segments touching a vertiport or airport are approach segments and are reported apart. The share of a segment's volume that overlaps separates thin crossings from corridors running inside another volume.
 
 ## Data Format
 
