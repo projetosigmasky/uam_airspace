@@ -237,7 +237,7 @@ claim("2.4", "REH reference: 99% of path within REH", "99%", f"{ce['6vp']['base_
       min(ce['6vp']['base_REH']['within_250m_of_REH_axis_pct'], ce['12vp']['base_REH']['within_250m_of_REH_axis_pct']) >= 99)
 va = json.load(open(REV + "along_axis/overlap_volume_along_axis.json", encoding="utf-8"))
 aa = tuple(va[c]["rows"]["ENV_SBSP"]["pct_of_volume"] for c in (r6r, r12r))
-claim("3.2", "along-axis SBSP share: under 0.1% | 1.3%", "<0.1 / 1.3", str(tuple(round(x, 3) for x in aa)), aa[0] < 0.1 and round(aa[1], 1) == 1.3)
+claim("3.2", "along-axis SBSP share: under 0.1% | 1.2%", "<0.1 / 1.2", str(tuple(round(x, 3) for x in aa)), aa[0] < 0.1 and round(aa[1], 1) == 1.2)
 sa = pd.read_csv(REPO + "approach_surfaces_stations_axis_traffic_align30.csv")
 mm = st.merge(sa, on=["icao", "side", "station"], suffixes=("_r", "_a"))
 dlo = ((mm.lower_limit_m_a - mm.lower_limit_m_r).abs() / FT)[mm.distance_nm_r <= 7.0]
@@ -246,17 +246,17 @@ tube = sa[(sa.icao == "SBSP") & (sa.side == "SIDE_35") & sa.distance_nm.between(
 claim("3.2", "runway 17 final a tube 0.02 NM wide (along-axis, 4-4.8 NM)", "0.02", f"{tube.min():.3f}-{tube.max():.3f}", round(tube.max(), 2) <= 0.02)
 import os
 if not os.path.exists(REV + "occupancy/occupancy_summary.csv"):
-    rows.append(("T2/abs/3.2", "Flightradar24 flights through the volumes (177, 0.3, 263, 44, 1.0, 131)", "-",
+    rows.append(("T2/abs/3.2", "Flightradar24 flights through the volumes (176, 0.3, 262, 44, 1.0, 130)", "-",
                  "not computed: needs the licensed track extract (RIDITA_TRACKS)", "SKIP"))
 else:
     oc = pd.read_csv(REV + "occupancy/occupancy_summary.csv").set_index("volume").SBSP_per_day
-    claim("T2/abs", "SBSP movements/day: 177 -> 177 (0.3) | 263 -> 263 (0.3)", "(177, 177, 0.3, 263, 263, 0.3)",
+    claim("T2/abs", "SBSP movements/day (December): 176 -> 176 (0.3) | 262 -> 262 (0.3)", "(176, 176, 0.3, 262, 262, 0.3)",
           str((oc["6vp_initial"], oc["6vp_refined"], oc["REH_ref_6vp"], oc["12vp_initial"], oc["12vp_refined"], oc["REH_ref_12vp"])),
-          (round(oc["6vp_initial"]), round(oc["6vp_refined"]), round(oc["REH_ref_6vp"], 1), round(oc["12vp_initial"]), round(oc["12vp_refined"]), round(oc["REH_ref_12vp"], 1)) == (177, 177, 0.3, 263, 263, 0.3))
+          (round(oc["6vp_initial"]), round(oc["6vp_refined"]), round(oc["REH_ref_6vp"], 1), round(oc["12vp_initial"]), round(oc["12vp_refined"]), round(oc["REH_ref_12vp"], 1)) == (176, 176, 0.3, 262, 262, 0.3))
     claim("3.2", "one lane's box: 44/day at 4,000 ft, 1.0 at REH altitudes (6vp)", "44 / 1.0", f"{oc['base_4000ft_lane_6vp']} / {oc['base_REHalt_lane_6vp']}",
           round(oc["base_4000ft_lane_6vp"]) == 44 and round(oc["base_REHalt_lane_6vp"], 1) == 1.0)
     os_ = pd.read_csv(REV + "occupancy/occupancy_segments_6vp_refined.csv").sort_values("per_day", ascending=False).iloc[0]
-    claim("3.2", "131 movements/day along one segment on the runway 17 final", "131", f"{os_.segment}: {os_.per_day}", round(os_.per_day) == 131)
+    claim("3.2", "130 movements/day along one segment on the runway 17 final", "130", f"{os_.segment}: {os_.per_day}", round(os_.per_day) == 130)
 
 pd.set_option("display.width", 250, "display.max_colwidth", 140)
 out = pd.DataFrame(rows, columns=["section", "claim", "paper", "computed", "status"])
