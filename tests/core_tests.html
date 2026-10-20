@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard core tests</title>
+<style>
+    body { font: 14px/1.4 system-ui, sans-serif; margin: 1.5rem; color: #111827; background: #ffffff; }
+    table { border-collapse: collapse; margin-top: 1rem; }
+    td, th { border: 1px solid #d1d5db; padding: 0.25rem 0.5rem; text-align: left; vertical-align: top; }
+    .pass { color: #166534; font-weight: 600; }
+    .fail { color: #b91c1c; font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Dashboard core tests</h1>
+<p>Unit tests of the pure functions in <code>index.html</code> (overlap analysis and parallel-route geometry),
+run on small synthetic routes. Serve the repository root over HTTP (e.g. <code>python -m http.server</code>)
+and open <code>/tests/core_tests.html</code>, or run <code>python tests/run_browser_tests.py</code>.</p>
+<p id="summary">Running…</p>
+<table><thead><tr><th>Result</th><th>Test</th><th>Detail</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+(async () => {
+    const results = [];
+    const check = (name, ok, detail = '') => results.push({ name, ok: Boolean(ok), detail: String(detail) });
+    const close = (a, b, tol) => Math.abs(a - b) <= tol;
+
+    // Load the two pure script blocks of the dashboard
+    const html = await (await fetch('../index.html', { cache: 'no-store' })).text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const code = ['overlap-analysis-core', 'route-geometry-core']
+        .map(id => doc.getElementById(id).textContent).join('\n');
+    const { OverlapAnalysis, offsetWaypointsHorizontally } =
+        new Function(code + '\nreturn { OverlapAnalysis, offsetWaypointsHorizontally };')();
+
+    // Local metres around 23.55 S, 46.63 W (same metres-per-degree as the dashboard)
+    const LAT0 = -23.55, LON0 = -46.63, PHI = LAT0 * Math.PI / 180;
+    const M_LAT = 111132.92 - 559.82 * Math.cos(2 * PHI) + 1.175 * Math.cos(4 * PHI);
+    const M_LON = 111412.84 * Math.cos(PHI) - 93.5 * Math.cos(3 * PHI);
+    const ll = (x, y) => ({ lat: LAT0 + y / M_LAT, lon: LON0 + x / M_LON });
+    const xy = wp => [(wp.lon - LON0) * M_LON, (wp.lat - LAT0) * M_LAT];
+    const wp = (name, x, y, alt, opts = {}) => ({ name, ...ll(x, y), altitude: alt, width: opts.width ?? 457,
+        height: opts.height ?? 305, type: opts.type ?? 'Node' });
+    const route = (name, pts) => ({ name, waypoints: pts });
+    const layer = (name, routes) => ({ name, routes });
+    const all = s => s.rows[s.rows.length - 1];
+    const L = 2000, W = 457, H = 305, KM3 = 1e9;
+
+    // ---------------------------------------------------------------- overlap analysis
+    const uam = route('U', [wp('A', 0, 0, 1219), wp('B', L, 0, 1219)]);
+    const boxVolume = L * W * H;
+
+    // The raster counts whole cells whose centre lies in the footprint: a 457-m width becomes
+    // 10 rows of 50 m (500 m) for this east-west segment, so the error is up to one row of cells
+    let s = OverlapAnalysis.analyse([uam], [], { cellSize: 10 });
+    check('volume of one segment = length x width x height (10-m raster, within 1%)',
+        close(s.volume, boxVolume, 0.01 * boxVolume), `${(s.volume / KM3).toFixed(4)} vs ${(boxVolume / KM3).toFixed(4)} km³`);
+    s = OverlapAnalysis.analyse([uam], []);
+    check('volume with the default 50-m raster is within one row of cells',
+        close(s.volume, boxVolume, L * 50 * H), `${(s.volume / KM3).toFixed(4)} vs ${(boxVolume / KM3).toFixed(4)} km³ (${(100 * (s.volume / boxVolume - 1)).toFixed(1)}%)`);
+    const v1 = s.volume;
+
+    s = OverlapAnalysis.analyse([uam, route('U2', uam.waypoints.map(p => ({ ...p })))], []);
+    check('two routes on the same waypoint segment count once (volume and segment count)',
+        s.volume === v1 && s.nCruise === 1, `volume ratio ${(s.volume / v1).toFixed(6)}, ${s.nCruise} segment(s)`);
+
+    s = OverlapAnalysis.analyse([uam], [layer('BIG', [route('O', [wp('o1', -500, 0, 1219, { width: 2000, height: 1000 }),
+        wp('o2', L + 500, 0, 1219, { width: 2000, height: 1000 })])])]);
+    check('an obstacle containing the corridor overlaps 100%', close(all(s).pct, 100, 1e-9), `${all(s).pct.toFixed(3)}%`);
+
+    // altitude interpolation: corridor climbs 1,000 -> 1,400 m with a 100-m band; obstacle band
+    // 1,150-1,250 m along the whole segment. Overlap averages 25 m of the 100-m band: 25%.
+    const climb = route('C', [wp('c1', 0, 0, 1000, { height: 100 }), wp('c2', L, 0, 1400, { height: 100 })]);
+    const band = route('O', [wp('o1', -500, 0, 1200, { width: 2000, height: 100 }), wp('o2', L + 500, 0, 1200, { width: 2000, height: 100 })]);
+    s = OverlapAnalysis.analyse([climb], [layer('BAND', [band])]);
+    check('altitude is interpolated along the segment (expected 25%, within 1 point)', close(all(s).pct, 25, 1), `${all(s).pct.toFixed(2)}%`);
+
+    // orientation: parallel obstacle P above, perpendicular obstacle X below, in the same cells
+    const P = (lo, hi) => route('P', [wp('p1', 0, 0, (lo + hi) / 2, { height: hi - lo }), wp('p2', L, 0, (lo + hi) / 2, { height: hi - lo })]);
+    const X = (lo, hi) => route('X', [wp('x1', L / 2, -1000, (lo + hi) / 2, { height: hi - lo }), wp('x2', L / 2, 1000, (lo + hi) / 2, { height: hi - lo })]);
+    const run = obs => all(OverlapAnalysis.analyse([uam], [layer('OBS', obs)]));
+    const r1 = run([P(1300, 1500)]), r2 = run([X(900, 1100)]), r3 = run([P(1300, 1500), X(900, 1100)]);
+    check('parallel-only overlap is 100% parallel, crossing-only 0%', r1.parallelPct === 100 && r2.parallelPct === 0,
+        `${r1.parallelPct.toFixed(1)}%, ${r2.parallelPct.toFixed(1)}%`);
+    check('total overlap is additive for disjoint altitude bands', close(r3.overlap, r1.overlap + r2.overlap, 1e-6 * r3.overlap),
+        `${(r3.overlap / KM3).toFixed(6)} vs ${((r1.overlap + r2.overlap) / KM3).toFixed(6)} km³`);
+    const par3 = r3.overlap * r3.parallelPct / 100;
+    check('mixed cell: only the parallel pair\'s part is parallel (no over-attribution)', close(par3, r1.overlap, 1e-6 * r1.overlap),
+        `parallel ${(par3 / KM3).toFixed(6)} km³, parallel-only case ${(r1.overlap / KM3).toFixed(6)} km³ (${r3.parallelPct.toFixed(1)}% of overlap)`);
+    const r4 = run([P(1100, 1300), X(1200, 1400)]);
+    check('partly shared bands: parallel part never exceeds the overlap', r4.parallelPct <= 100 && r4.parallelPct > 0,
+        `${r4.parallelPct.toFixed(1)}% parallel`);
+
+    // terminal segments: a segment touching a vertiport is an approach segment, reported apart
+    const withVp = route('T', [wp('V', -L, 0, 760, { type: 'Vertiport' }), wp('A', 0, 0, 1219), wp('B', L, 0, 1219)]);
+    const overApproach = route('O', [wp('o1', -L, 0, 1000, { width: 1000, height: 1000 }), wp('o2', -200, 0, 1000, { width: 1000, height: 1000 })]);
+    s = OverlapAnalysis.analyse([withVp], [layer('OBS', [overApproach])]);
+    check('approach segments are separated from cruise segments', s.nCruise === 1 && s.nApproach === 1 && all(s).overlap === 0 && s.approachPct > 0,
+        `${s.nCruise} cruise, ${s.nApproach} approach, cruise overlap ${all(s).overlap}, approach ${s.approachPct.toFixed(1)}%`);
+
+    // axis-altitude slab: footprint share, not centreline length. Obstacle axis 300 m north of the
+    // corridor axis covers 71.5-228.5 m of the corridor width (34.4%) but never the centreline.
+    const side = route('S', [wp('s1', 0, 300, 1250, { height: 300 }), wp('s2', L, 300, 1250, { height: 300 })]);
+    s = OverlapAnalysis.analyse([uam], [layer('SIDE', [side])]);
+    const slab = s.sweep.find(x => x.heightFt === 0).pct;
+    check('height sweep at 0 ft is a footprint share at the axis altitude (34.4% within one 50-m row; centreline inside: 0%)',
+        close(slab, 34.4, 100 * 50 / W), `${slab.toFixed(1)}%`);
+
+    // ---------------------------------------------------------------- parallel-route geometry
+    const OFF = 228.6;
+    const signedDistance = (q, a, b) => {   // > 0: q is left of a->b
+        const [x1, y1] = xy(a), [x2, y2] = xy(b), [qx, qy] = xy(q);
+        return ((x2 - x1) * (qy - y1) - (y2 - y1) * (qx - x1)) / Math.hypot(x2 - x1, y2 - y1);
+    };
+    const sameAttrs = (out, ref) => out.length === ref.length && out.every((p, i) =>
+        p.name === ref[i].name && p.type === ref[i].type && p.altitude === ref[i].altitude);
+    const fixedEnds = (out, ref) => out[0].lat === ref[0].lat && out[0].lon === ref[0].lon &&
+        out[out.length - 1].lat === ref[ref.length - 1].lat && out[out.length - 1].lon === ref[ref.length - 1].lon;
+    const pts = (coords) => coords.map(([x, y], i) => wp(`W${i}`, x, y, i === 0 || i === coords.length - 1 ? 760 : 1219,
+        { type: i === 0 || i === coords.length - 1 ? 'Vertiport' : 'Node' }));
+
+    const cases = {
+        'east-west route with gentle turns': pts([[-8000, -500], [-4000, 0], [0, 0], [4000, 500], [8000, 0]]),
+        'north-south route': pts([[-500, -8000], [0, -4000], [0, 0], [500, 4000], [0, 8000]]),
+        '150-degree turn': pts([[-7939, -695], [-4000, 0], [0, 0], [-3464, 2000], [-7404, 2695]]),
+        'collinear consecutive edges': pts([[-6000, 300], [-3000, 0], [0, 0], [3000, 0], [6000, 300]]),
+        'repeated waypoint': pts([[-6000, 300], [-3000, 0], [-3000, 0], [3000, 0], [6000, 300]])
+    };
+    for (const [name, base] of Object.entries(cases)) {
+        for (const off of [OFF, -OFF]) {
+            const out = offsetWaypointsHorizontally(base, off);
+            // offset of every lane segment from its base segment (zero-length segments skipped)
+            const d = [];
+            for (let i = 1; i < base.length - 2; i++) {
+                const [ax, ay] = xy(base[i]), [bx, by] = xy(base[i + 1]);
+                if (Math.hypot(bx - ax, by - ay) < 1) continue;
+                d.push(signedDistance(out[i], base[i], base[i + 1]), signedDistance(out[i + 1], base[i], base[i + 1]));
+            }
+            const ok = sameAttrs(out, base) && fixedEnds(out, base) && d.every(v => close(v, off, 0.05));
+            check(`offset ${off > 0 ? '+' : ''}${off} m, ${name}: one point per waypoint, attributes kept, ends fixed, ${Math.abs(off)} m to the ${off > 0 ? 'left' : 'right'}`,
+                ok, `distances ${d.map(v => v.toFixed(2)).join(', ')}`);
+        }
+    }
+    const two = pts([[-5000, 0], [5000, 0]]);
+    const out2 = offsetWaypointsHorizontally(two, OFF);
+    check('two-point route: start, offset point labelled after the end, fixed end',
+        out2.length === 3 && fixedEnds(out2, two) && out2[1].type === 'Waypoint' && out2[1].name === 'W1 offset' &&
+        out2[2].type === 'Vertiport' && close(signedDistance(out2[1], two[0], two[1]), OFF, 0.05),
+        out2.map(p => `${p.name}/${p.type}`).join(', '));
+    check('zero offset returns the route unchanged', JSON.stringify(offsetWaypointsHorizontally(two, 0)) === JSON.stringify(two));
+
+    // ---------------------------------------------------------------- report
+    const failed = results.filter(r => !r.ok).length;
+    document.getElementById('summary').innerHTML = failed
+        ? `<span class="fail">${failed} of ${results.length} tests failed</span>`
+        : `<span class="pass">All ${results.length} tests passed</span>`;
+    const rows = document.getElementById('rows');
+    results.forEach(r => {
+        const tr = document.createElement('tr');
+        [r.ok ? 'PASS' : 'FAIL', r.name, r.detail].forEach((t, i) => {
+            const td = document.createElement('td');
+            td.textContent = t;
+            if (i === 0) td.className = r.ok ? 'pass' : 'fail';
+            tr.appendChild(td);
+        });
+        rows.appendChild(tr);
+    });
+    window.__testResults = results;
+})().catch(err => {
+    document.getElementById('summary').textContent = 'Error: ' + err.message;
+    window.__testResults = [{ name: 'test page', ok: false, detail: String(err.stack || err) }];
+});
+</script>
+</body>
+</html>

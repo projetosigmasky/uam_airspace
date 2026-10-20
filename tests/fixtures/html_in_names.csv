@@ -1,0 +1,4 @@
+route,id,name,lat,lon,type,altitude,height,width
+"Rota <img src=x onerror=window.__xss_route=1>",1,"Portão Cabreúva & O'Hara <i>VP</i>",-23.55,-46.70,Vertiport,760,305,457
+"Rota <img src=x onerror=window.__xss_route=1>",2,"<img src=x onerror=window.__xss_wp=1>",-23.54,-46.65,Node,1219,305,457
+"Rota <img src=x onerror=window.__xss_route=1>",3,"<svg onload=window.__xss_vp=1>",-23.53,-46.60,Vertiport,760,305,457

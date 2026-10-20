@@ -1,0 +1,5 @@
+"icao","side","bearing","stations","flights","arrivals","departures","lo_ft_min","hi_ft_max","width_nm_max"
+"SBGR","SIDE_10",74,4,20,20,0,2216,5245,14
+"SBGR","SIDE_28",254,91,20,20,0,2521,5628,14.95
+"SBSP","SIDE_17",147,1,10,10,0,5000,5000,10
+"SBSP","SIDE_35",327,91,20,20,0,2683,5797,14.95
