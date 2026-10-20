@@ -1132,7 +1132,9 @@
             const NM = 1852;
             const TERMINAL_TYPES = new Set(['Vertiport', 'Airport']);
             const DEFAULTS = { cellSize: 50, parallelDeg: 30, heightFt: null, significantPct: 10 };
-            const SWEEP_HEIGHTS_FT = [1000, 800, 600, 400, 200, 0];   // 0: 1-m slab around the axis
+            // 0: a 1-m slab at the axis altitude over the full corridor width (an axis-altitude
+            // footprint share, not the length of the centreline inside other volumes)
+            const SWEEP_HEIGHTS_FT = [1000, 800, 600, 400, 200, 0];
             const SHARE_THRESHOLDS = [0.01, 0.10, 0.50];
             const ALL_LAYERS = 'All layers';
             const HASH = 1000;   // coarse spatial hash for the other layers (m)
@@ -1335,19 +1337,22 @@
                             overlap[group][ALL_LAYERS] += interLen(U, Oall) * area;
                         }
 
-                        // parallel: an overlapping pair of this cell is within parallelDeg
-                        let parallelAny = false;
+                        // parallel part: the overlap lying inside at least one segment-obstacle pair
+                        // within parallelDeg of each other; the rest is crossing. Pairs are intersected
+                        // interval by interval, so a cell with both kinds splits its overlap.
                         if (group === 'cruise' && c.obs.length) {
-                            O.forEach((OL, L) => {
-                                const par = ents.some((e, n) => c.obs.some(o => o.layer === L &&
-                                    Math.min(ivs[n][1], o.hi) > Math.max(ivs[n][0], o.lo) &&
-                                    Math.abs(e.ux * o.ux + e.uy * o.uy) >= cosParallel));
-                                if (par) {
-                                    parallel[L] += interLen(U, OL) * area;
-                                    parallelAny = true;
+                            const parByLayer = new Map();
+                            const parAll = [];
+                            ents.forEach((e, n) => c.obs.forEach(o => {
+                                const lo = Math.max(ivs[n][0], o.lo), hi = Math.min(ivs[n][1], o.hi);
+                                if (hi > lo && Math.abs(e.ux * o.ux + e.uy * o.uy) >= cosParallel) {
+                                    if (!parByLayer.has(o.layer)) parByLayer.set(o.layer, []);
+                                    parByLayer.get(o.layer).push([lo, hi]);
+                                    parAll.push([lo, hi]);
                                 }
-                            });
-                            if (parallelAny) parallel[ALL_LAYERS] += interLen(U, Oall) * area;
+                            }));
+                            parByLayer.forEach((pivs, L) => { parallel[L] += total(union(pivs)) * area; });
+                            if (parAll.length) parallel[ALL_LAYERS] += total(union(parAll)) * area;
                         }
 
                         // per segment (both lanes and all routes that share it)
@@ -1369,10 +1374,12 @@
                             prep.layerNames.forEach((L, li) => {
                                 if (O.has(L)) kLayer[li][kid] += interLen(Uk, O.get(L)) * area;
                             });
-                            const par = ownPar.some(([e, iv]) => c.obs.some(o =>
-                                Math.min(iv[1], o.hi) > Math.max(iv[0], o.lo) &&
-                                Math.abs(e.ux * o.ux + e.uy * o.uy) >= cosParallel));
-                            if (par) kPar[kid] += ov;
+                            const kp = [];
+                            ownPar.forEach(([e, iv]) => c.obs.forEach(o => {
+                                const lo = Math.max(iv[0], o.lo), hi = Math.min(iv[1], o.hi);
+                                if (hi > lo && Math.abs(e.ux * o.ux + e.uy * o.uy) >= cosParallel) kp.push([lo, hi]);
+                            }));
+                            if (kp.length) kPar[kid] += total(union(kp)) * area;
                         });
                     }
                 });
@@ -1424,6 +1431,57 @@
 
             return { analyse, prepare, evaluate, FT, NM, DEFAULTS, SHARE_THRESHOLDS, ALL_LAYERS };
         })();
+    </script>
+
+    <script id="route-geometry-core">
+        // Route geometry used when generating parallel routes: pure functions without DOM access,
+        // so they can be tested on their own (tests/core_tests.html).
+        // Offset a route sideways by offsetMetres (positive: to the left of the direction of
+        // travel), keeping its first and last waypoints fixed. Interior waypoints move to the
+        // intersection of the two adjacent offset edges (mitre); where those edges are collinear
+        // the waypoint moves perpendicular to them, so every input waypoint has one output
+        // waypoint with its own attributes. A two-waypoint route gets one extra point, the offset
+        // end of its edge, before the fixed end. Distances are metres in a local plane with the
+        // same metres-per-degree as the overlap analysis.
+        function offsetWaypointsHorizontally(waypoints, offsetMetres) {
+            const n = waypoints.length;
+            if (n < 2 || !offsetMetres) return waypoints.map(wp => ({ ...wp }));
+            const lat0 = waypoints[0].lat, lon0 = waypoints[0].lon;
+            const phi = (waypoints.reduce((sum, wp) => sum + wp.lat, 0) / n) * Math.PI / 180;
+            const mLat = 111132.92 - 559.82 * Math.cos(2 * phi) + 1.175 * Math.cos(4 * phi);
+            const mLon = 111412.84 * Math.cos(phi) - 93.5 * Math.cos(3 * phi);
+            const pts = waypoints.map(wp => ({ x: (wp.lon - lon0) * mLon, y: (wp.lat - lat0) * mLat }));
+            const toWaypoint = (wp, x, y) => ({ ...wp, lat: lat0 + y / mLat, lon: lon0 + x / mLon });
+            const dirs = [];   // unit direction of each edge, null for a zero-length edge
+            for (let i = 0; i < n - 1; i++) {
+                const dx = pts[i + 1].x - pts[i].x, dy = pts[i + 1].y - pts[i].y;
+                const len = Math.hypot(dx, dy);
+                dirs.push(len > 1e-6 ? { x: dx / len, y: dy / len } : null);
+            }
+            const leftOf = d => ({ x: -d.y, y: d.x });
+
+            if (n === 2) {
+                if (!dirs[0]) return waypoints.map(wp => ({ ...wp }));
+                const nl = leftOf(dirs[0]);
+                const end = waypoints[1];
+                return [{ ...waypoints[0] },
+                        toWaypoint({ ...end, name: `${end.name || 'WP 2'} offset`, type: 'Waypoint' },
+                                   pts[1].x + offsetMetres * nl.x, pts[1].y + offsetMetres * nl.y),
+                        { ...end }];
+            }
+            return waypoints.map((wp, i) => {
+                if (i === 0 || i === n - 1) return { ...wp };
+                let a = null, b = null;
+                for (let k = i - 1; k >= 0 && !a; k--) a = dirs[k];
+                for (let k = i; k < n - 1 && !b; k++) b = dirs[k];
+                a = a || b; b = b || a;
+                if (!a) return { ...wp };
+                const na = leftOf(a), nb = leftOf(b);
+                const c = 1 + a.x * b.x + a.y * b.y;   // 1 + cos(turn); 0 for a full reversal
+                const m = c > 1e-6 ? { x: (na.x + nb.x) / c, y: (na.y + nb.y) / c } : na;
+                return toWaypoint(wp, pts[i].x + offsetMetres * m.x, pts[i].y + offsetMetres * m.y);
+            });
+        }
     </script>
 
     <script>
@@ -1991,7 +2049,7 @@
                             color: trajectory.color || '#000000',
                             weight: 0.8,
                             opacity: 0.5
-                        }).bindPopup(`<b>${trajectory.name || 'Trajectory ' + (trajIdx + 1)}</b>`);
+                        }).bindPopup(`<b>${escapeHtml(trajectory.name || 'Trajectory ' + (trajIdx + 1))}</b>`);
                         
                         if (map2D.routeLines) map2D.routeLines.addLayer(polyline);
                     }
@@ -2016,7 +2074,7 @@
                         icon: icon,
                         draggable: true,
                         title: name
-                    }).bindPopup(`<b>${name}</b><br>${vertiport.type}`);
+                    }).bindPopup(`<b>${escapeHtml(name)}</b><br>${escapeHtml(vertiport.type)}`);
                     
                     // Store vertiport name in marker for reference
                     marker.vertiportName = name;
@@ -2099,7 +2157,7 @@
                                 opacity: 0.7,
                                 fillOpacity: 0.2,
                                 fillColor: colorStr
-                            }).bindPopup(`<b>${route.name}</b><br>Width: ${width}m<br>Height (Alt): ${height}m<br>Path Altitude: ${displayAltitude}${unit}`);
+                            }).bindPopup(`<b>${escapeHtml(route.name)}</b><br>Width: ${width}m<br>Height (Alt): ${height}m<br>Path Altitude: ${displayAltitude}${unit}`);
                             
                             if (map2D.routeLines) map2D.routeLines.addLayer(polygon);
                         }
@@ -2110,7 +2168,7 @@
                             weight: 3,
                             opacity: 0.7,
                             dashArray: '5, 5'
-                        }).bindPopup(`<b>${route.name}</b><br>Altitude: ${displayAltitude}${unit}`);
+                        }).bindPopup(`<b>${escapeHtml(route.name)}</b><br>Altitude: ${displayAltitude}${unit}`);
                         
                         if (map2D.routeLines) map2D.routeLines.addLayer(polyline);
                     }
@@ -2130,7 +2188,7 @@
                                 icon: icon,
                                 draggable: true,
                                 title: route.waypoints[idx].name || 'WP ' + idx
-                            }).bindPopup(`<b>${route.waypoints[idx].name || 'WP ' + idx}</b><br>Lat: ${route.waypoints[idx].lat.toFixed(6)}<br>Lon: ${route.waypoints[idx].lon.toFixed(6)}`);
+                            }).bindPopup(`<b>${escapeHtml(route.waypoints[idx].name || 'WP ' + idx)}</b><br>Lat: ${route.waypoints[idx].lat.toFixed(6)}<br>Lon: ${route.waypoints[idx].lon.toFixed(6)}`);
                             
                             // Store route and waypoint info in marker for reference
                             marker.routeId = route.id;
@@ -2493,12 +2551,12 @@
                             <div class="route-color-swatch" style="background-color: ${vertiportColor}"></div>
                             <span>${escapeHtml(name)}</span>
                         </div>
-                        <button class="button-small" style="background: none; border: none; cursor: pointer;" data-vertiport-name="${name}">
+                        <button class="button-small" style="background: none; border: none; cursor: pointer;" data-vertiport-name="${escapeHtml(name)}">
                             ${vertiport.visible ? '👁️' : '🙈'}
                         </button>
                     </div>
                     <div class="route-item-info">
-                        ${vertiport.type}, R: ${displayRadius}${unit}, H: ${displayHeight}${unit}
+                        ${escapeHtml(vertiport.type)}, R: ${displayRadius}${unit}, H: ${displayHeight}${unit}
                     </div>
                 `;
                 vertiportEl.addEventListener('click', () => selectVertiport(name));
@@ -2548,7 +2606,7 @@
                             <div class="route-color-swatch" style="background-color: ${routeColor}"></div>
                             <span>${escapeHtml(route.name)}</span>
                         </div>
-                        <button class="button-small" style="background: none; border: none; cursor: pointer;" data-route-id="${route.id}">
+                        <button class="button-small" style="background: none; border: none; cursor: pointer;" data-route-id="${escapeHtml(route.id)}">
                             ${route.visible ? '👁️' : '🙈'}
                         </button>
                     </div>
@@ -2614,7 +2672,7 @@
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.25rem;">
                             <div style="flex: 1;">
                                 <label style="display: block; font-size: 0.7rem; margin-bottom: 0.125rem;">Name</label>
-                                <input type="text" data-waypoint-index="${idx}" data-waypoint-field="name" class="waypoint-name-input" value="${wp.name}" style="width: 100%; padding: 0.25rem; border: 1px solid #d1d5db; border-radius: 0.25rem; font-size: 0.75rem; box-sizing: border-box;">
+                                <input type="text" data-waypoint-index="${idx}" data-waypoint-field="name" class="waypoint-name-input" value="${escapeHtml(wp.name)}" style="width: 100%; padding: 0.25rem; border: 1px solid #d1d5db; border-radius: 0.25rem; font-size: 0.75rem; box-sizing: border-box;">
                             </div>
                             <button class="waypoint-delete-btn" data-waypoint-index="${idx}" style="background: #ef4444; color: white; border: none; border-radius: 0.25rem; padding: 0.25rem 0.5rem; font-size: 0.7rem; cursor: pointer; flex-shrink: 0; margin-top: 1.25rem;">Delete</button>
                         </div>
@@ -2843,131 +2901,26 @@
             }
         }
 
+        // Waypoint fields of a generated parallel route (defaults as for loaded routes)
+        function parallelWaypointFields(wp, idx) {
+            return {
+                name: wp.name || `WP ${idx + 1}`,
+                lat: wp.lat,
+                lon: wp.lon,
+                altitude: wp.altitude || 1219,
+                width: wp.width || 457,
+                height: wp.height || 305,
+                type: wp.type || 'Waypoint'
+            };
+        }
+
         function createParallelCorridor(offset, direction) {
             const route = state.routes.find(r => r.id === state.selectedRouteId);
             if (!route || route.waypoints.length < 2) return;
 
             if (direction === 'horizontal') {
-                // Convert waypoints to 3D coordinates
-                const waypoints3D = route.waypoints.map(wp => 
-                    latLonToXYZ(wp.lat, wp.lon, 0)
-                );
-
-                // Step 1: Create parallel (offset) edges as infinite lines
-                const offsetLines = []; // { point: {x,z}, direction: {x,z} }
-                
-                for (let i = 0; i < waypoints3D.length - 1; i++) {
-                    const p0 = waypoints3D[i];
-                    const p1 = waypoints3D[i + 1];
-                    
-                    // Calculate edge direction and perpendicular
-                    let dirX = p1.x - p0.x;
-                    let dirZ = p1.z - p0.z;
-                    const mag = Math.sqrt(dirX * dirX + dirZ * dirZ);
-                    
-                    if (mag > 0.0001) {
-                        dirX /= mag;
-                        dirZ /= mag;
-                        
-                        // Perpendicular (90° to the right)
-                        const perpX = dirZ;
-                        const perpZ = -dirX;
-                        
-                        // Offset the starting point of this edge
-                        const offsetP0 = {
-                            x: p0.x + perpX * offset,
-                            z: p0.z + perpZ * offset
-                        };
-                        
-                        // Store as an infinite line: point + direction
-                        offsetLines.push({
-                            point: offsetP0,
-                            direction: { x: dirX, z: dirZ }
-                        });
-                    }
-                }
-
-                // Step 2: Build new waypoints from intersections of consecutive lines
-                // Keep start and end waypoints fixed (don't translate them)
-                const offsetWaypoints3D = [];
-                
-                // First waypoint: keep original position (no offset)
-                offsetWaypoints3D.push(waypoints3D[0]);
-                
-                if (offsetLines.length === 0) {
-                    // No valid edges - just add the end point
-                    offsetWaypoints3D.push(waypoints3D[waypoints3D.length - 1]);
-                } else if (offsetLines.length === 1) {
-                    // Single edge: use the offset edge endpoint for middle, keep start/end fixed
-                    const line = offsetLines[0];
-                    const edgeLen = Math.sqrt(
-                        Math.pow(waypoints3D[1].x - waypoints3D[0].x, 2) +
-                        Math.pow(waypoints3D[1].z - waypoints3D[0].z, 2)
-                    );
-                    
-                    offsetWaypoints3D.push({
-                        x: line.point.x + edgeLen * line.direction.x,
-                        z: line.point.z + edgeLen * line.direction.z
-                    });
-                    offsetWaypoints3D.push(waypoints3D[waypoints3D.length - 1]);
-                } else {
-                    // Multiple edges: 
-                    // WP0: keep original starting point (no offset)
-                    // WP(1..N-2): intersections of consecutive offset infinite lines
-                    // WP(N-1): keep original ending point (no offset)
-                    
-                    // Middle waypoints: intersections of consecutive offset infinite lines
-                    for (let i = 1; i < offsetLines.length; i++) {
-                        const line1 = offsetLines[i - 1];
-                        const line2 = offsetLines[i];
-                        
-                        // Find intersection of two infinite lines:
-                        // Line 1: P = line1.point + t * line1.direction
-                        // Line 2: P = line2.point + s * line2.direction
-                        
-                        const dx = line2.point.x - line1.point.x;
-                        const dz = line2.point.z - line1.point.z;
-                        
-                        const det = line1.direction.x * line2.direction.z - 
-                                   line1.direction.z * line2.direction.x;
-                        
-                        if (Math.abs(det) > 0.0001) {
-                            // Lines are not parallel - find intersection and add waypoint
-                            const t = (dx * line2.direction.z - dz * line2.direction.x) / det;
-                            const intersection = {
-                                x: line1.point.x + t * line1.direction.x,
-                                z: line1.point.z + t * line1.direction.z
-                            };
-                            offsetWaypoints3D.push(intersection);
-                        }
-                    }
-                    
-                    // Last waypoint: keep original ending point (no offset)
-                    offsetWaypoints3D.push(waypoints3D[waypoints3D.length - 1]);
-                }
-
-                // Step 3: Convert back to lat/lon
-                const centerLat = -23.55;
-                const centerLon = -46.63;
-                const scale = 100000;
-
-                const newWaypoints = offsetWaypoints3D.map((pos, idx) => {
-                    const newLon = centerLon + pos.x / (scale * Math.cos(centerLat * Math.PI / 180));
-                    const newLat = centerLat - pos.z / scale;
-                    const altitude = route.waypoints[idx] ? (route.waypoints[idx].altitude || 1219) : 1219;
-                    const width = route.waypoints[idx] && route.waypoints[idx].width ? route.waypoints[idx].width : 457;
-                    const height = route.waypoints[idx] && route.waypoints[idx].height ? route.waypoints[idx].height : 305;
-
-                    return {
-                        name: `WP ${idx + 1}`,
-                        lat: newLat,
-                        lon: newLon,
-                        altitude: altitude,
-                        width: width,
-                        height: height,
-                        type: 'Waypoint'
-                    };
-                });
+                const newWaypoints = offsetWaypointsHorizontally(route.waypoints, offset)
+                    .map(parallelWaypointFields);
 
                 const color = {
                     r: Math.floor(Math.random() * 256),
@@ -3195,7 +3148,9 @@
 
                     if (!routeMap.has(routeName)) {
                         routeMap.set(routeName, {
-                            id: routeName,
+                            // ids are scoped to the file layer: different files may reuse a
+                            // route name (an REH and an REA route, two versions of a scenario)
+                            id: `${fileLayer.id}::${routeName}`,
                             name: routeName,
                             waypoints: [],
                             color: new THREE.Color(layerColor),
@@ -3226,26 +3181,15 @@
                     return;
                 }
 
-                const existingIds = new Set(state.routes.map(r => r.id));
-                let addedRoutesCount = 0;
-                newRoutes.forEach(route => {
-                    if (!existingIds.has(route.id)) {
-                        state.routes.push(route);
-                        addedRoutesCount++;
-                    }
-                });
-                
+                // Every route of the file is kept in its own layer, even if another layer has a
+                // route with the same name
+                newRoutes.forEach(route => state.routes.push(route));
+
                 // Merge new vertiports with existing ones
                 vertiportMap.forEach((vp, name) => {
                     state.vertiports.set(name, vp);
                 });
 
-                if (addedRoutesCount === 0 && vertiportMap.size === 0) {
-                    state.fileLayers = state.fileLayers.filter(layer => layer.id !== fileLayer.id);
-                    alert('No new routes were added because the route IDs already exist.');
-                    return;
-                }
-                
                 state.selectedRouteId = state.routes.length > 0 ? state.routes[0].id : null;
                 
                 // Re-attach form listeners to ensure fresh event handlers after CSV load
@@ -3259,13 +3203,27 @@
 
         function exportToCSV() {
             let csv = 'route,id,name,lat,lon,type,altitude,height,width\n';
+            // Routes are written by name, so a name used in more than one layer gets the layer
+            // name appended; otherwise the routes would merge into one when the file is reloaded
+            const nameCount = new Map();
+            state.routes.forEach(route => nameCount.set(route.name, (nameCount.get(route.name) || 0) + 1));
+            const renamed = new Set();
+            const exportName = route => {
+                if (nameCount.get(route.name) === 1) return route.name;
+                renamed.add(route.name);
+                return `${route.name} [${route.layerId ? layerNameById(route.layerId) : 'generated'}]`;
+            };
             state.routes.forEach(route => {
+                const routeName = exportName(route);
                 route.waypoints.forEach((wp, idx) => {
                     const wpWidth = (wp.width !== undefined) ? wp.width : 457;
                     const wpHeight = (wp.height !== undefined) ? wp.height : 305;
-                    csv += `"${route.name}",${idx + 1},"${wp.name}",${wp.lat},${wp.lon},"${wp.type}",${wp.altitude || 1219},${wpHeight},${wpWidth}\n`;
+                    csv += `"${routeName}",${idx + 1},"${wp.name}",${wp.lat},${wp.lon},"${wp.type}",${wp.altitude || 1219},${wpHeight},${wpWidth}\n`;
                 });
             });
+            if (renamed.size > 0) {
+                alert(`${renamed.size} route name(s) are used in more than one layer; the layer name was appended to them in the exported file.`);
+            }
 
             const blob = new Blob([csv], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
@@ -3844,104 +3802,8 @@
 
                     // Apply horizontal offset first (if any) - works with positive and negative values
                     if (horizontalOffset !== 0) {
-                        const waypoints3D = route.waypoints.map(wp => 
-                            latLonToXYZ(wp.lat, wp.lon, 0)
-                        );
-
-                        const offsetLines = [];
-                        for (let j = 0; j < waypoints3D.length - 1; j++) {
-                            const p0 = waypoints3D[j];
-                            const p1 = waypoints3D[j + 1];
-                            
-                            let dirX = p1.x - p0.x;
-                            let dirZ = p1.z - p0.z;
-                            const mag = Math.sqrt(dirX * dirX + dirZ * dirZ);
-                            
-                            if (mag > 0.0001) {
-                                dirX /= mag;
-                                dirZ /= mag;
-                                
-                                const perpX = dirZ;
-                                const perpZ = -dirX;
-                                
-                                const offsetP0 = {
-                                    x: p0.x + perpX * horizontalOffset,
-                                    z: p0.z + perpZ * horizontalOffset
-                                };
-                                
-                                offsetLines.push({
-                                    point: offsetP0,
-                                    direction: { x: dirX, z: dirZ }
-                                });
-                            }
-                        }
-
-                        const offsetWaypoints3D = [];
-                        offsetWaypoints3D.push(waypoints3D[0]);
-                        
-                        if (offsetLines.length === 0) {
-                            offsetWaypoints3D.push(waypoints3D[waypoints3D.length - 1]);
-                        } else if (offsetLines.length === 1) {
-                            const line = offsetLines[0];
-                            const edgeLen = Math.sqrt(
-                                Math.pow(waypoints3D[1].x - waypoints3D[0].x, 2) +
-                                Math.pow(waypoints3D[1].z - waypoints3D[0].z, 2)
-                            );
-                            
-                            offsetWaypoints3D.push({
-                                x: line.point.x + edgeLen * line.direction.x,
-                                z: line.point.z + edgeLen * line.direction.z
-                            });
-                            offsetWaypoints3D.push(waypoints3D[waypoints3D.length - 1]);
-                        } else {
-                            for (let j = 1; j < offsetLines.length; j++) {
-                                const line1 = offsetLines[j - 1];
-                                const line2 = offsetLines[j];
-                                
-                                const dx = line2.point.x - line1.point.x;
-                                const dz = line2.point.z - line1.point.z;
-                                
-                                const det = line1.direction.x * line2.direction.z - 
-                                           line1.direction.z * line2.direction.x;
-                                
-                                if (Math.abs(det) > 0.0001) {
-                                    const t = (dx * line2.direction.z - dz * line2.direction.x) / det;
-                                    const intersection = {
-                                        x: line1.point.x + t * line1.direction.x,
-                                        z: line1.point.z + t * line1.direction.z
-                                    };
-                                    offsetWaypoints3D.push(intersection);
-                                }
-                            }
-                            
-                            offsetWaypoints3D.push(waypoints3D[waypoints3D.length - 1]);
-                        }
-
-                        // Convert back to lat/lon
-                        const centerLat = -23.55;
-                        const centerLon = -46.63;
-                        const scale = 100000;
-
-                        parallelWaypoints = offsetWaypoints3D.map((pos, idx) => {
-                            const newLon = centerLon + pos.x / (scale * Math.cos(centerLat * Math.PI / 180));
-                            const newLat = centerLat - pos.z / scale;
-                            const originalWaypoint = route.waypoints[idx];
-                            const altitude = originalWaypoint ? (originalWaypoint.altitude || 1219) : 1219;
-                            const width = originalWaypoint && originalWaypoint.width ? originalWaypoint.width : 457;
-                            const height = originalWaypoint && originalWaypoint.height ? originalWaypoint.height : 305;
-                            const name = originalWaypoint ? (originalWaypoint.name || `WP ${idx + 1}`) : `WP ${idx + 1}`;
-                            const type = originalWaypoint ? (originalWaypoint.type || 'Waypoint') : 'Waypoint';
-
-                            return {
-                                name: name,
-                                lat: newLat,
-                                lon: newLon,
-                                altitude: altitude,
-                                width: width,
-                                height: height,
-                                type: type
-                            };
-                        });
+                        parallelWaypoints = offsetWaypointsHorizontally(route.waypoints, horizontalOffset)
+                            .map(parallelWaypointFields);
                     }
 
                     // Apply vertical offset (to the waypoints we have, whether horizontally offset or not)
@@ -4109,7 +3971,7 @@
                     <td>${(100 * seg.share).toFixed(0)}%</td>
                     <td>${escapeHtml(Object.entries(seg.byLayer).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([L]) => L).join(', '))}</td>
                 </tr>`).join('');
-            const sweepLabel = h => (h === 0 ? 'axis only' : h);
+            const sweepLabel = h => (h === 0 ? 'axis altitude (1-m slab)' : h);
             const axis = s.sweep.find(x => x.heightFt === 0);
 
             container.innerHTML = `
@@ -4121,7 +3983,7 @@
                     </tr></thead>
                     <tbody>${layerRows}</tbody>
                 </table>
-                <p class="ov-note">Segment columns count cruise segments by the share of their own volume that lies inside the layer. Overlap is parallel where an overlapping pair is within ${s.opts.parallelDeg}° of each other, otherwise crossing. Approach segments: ${fmtPct(s.approachPct)} of their volume overlaps.</p>
+                <p class="ov-note">Segment columns count cruise segments by the share of their own volume that lies inside the layer. The parallel part is the overlap lying inside segment–obstacle pairs within ${s.opts.parallelDeg}° of each other; the rest is crossing. Approach segments: ${fmtPct(s.approachPct)} of their volume overlaps.</p>
                 <table class="ov-table">
                     <thead><tr><th>Corridor height (ft)</th>${s.sweep.map(x => `<th>${sweepLabel(x.heightFt)}</th>`).join('')}</tr></thead>
                     <tbody>
@@ -4129,7 +3991,7 @@
                         <tr><td>Segments ≥ ${sig}% of their volume</td>${s.sweep.map(x => `<td>${x.significant}</td>`).join('')}</tr>
                     </tbody>
                 </table>
-                <p class="ov-note">${axis ? `${fmtPct(axis.pct)} of the corridor axis lies inside other volumes; reducing the corridor height cannot remove that part.` : ''}</p>
+                <p class="ov-note">${axis ? `At the axis altitude, ${fmtPct(axis.pct)} of the corridor footprint (a 1-m slab over the full corridor width) lies inside other volumes; reducing the corridor height cannot remove that part. This is an area share, not the length of the centreline inside other volumes.` : ''}</p>
                 ${top ? `<table class="ov-table">
                     <thead><tr><th>Largest overlaps (cruise)</th><th>km³</th><th>Share</th><th>Layers</th></tr></thead>
                     <tbody>${top}</tbody>
