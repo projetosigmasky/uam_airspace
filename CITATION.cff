@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software or its data, please cite the tagged release you used
+  (see the repository's Releases), not the live dashboard, which changes over time.
+type: software
+title: "UAM Airspace Dashboard: 3D corridor designer, overlap analysis and example data"
+authors:
+  - family-names: Carvalho
+    given-names: Lucas Orbolato
+    affiliation: Instituto Tecnológico de Aeronáutica (ITA)
+  - name: SIGMA-Sky Project
+repository-code: "https://github.com/projetosigmasky/uam_airspace"
+url: "https://projetosigmasky.github.io/uam_airspace/"
+abstract: >-
+  Client-side dashboard for designing urban air mobility corridors and measuring, by volume,
+  how much of them lies inside other airspace structures (helicopter and aircraft special
+  routes) and empirical airport-flow envelopes derived from Flightradar24 tracks, with the
+  scripts that build those layers.
+keywords:
+  - urban air mobility
+  - airspace design
+  - corridors
+  - overlap analysis
+  - Flightradar24

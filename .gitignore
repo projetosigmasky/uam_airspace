@@ -1,0 +1,5 @@
+
+# RIDITA 2026 reproduction: scenario inputs and outputs stay local (restricted / licensed data)
+ridita2026/inputs/
+ridita2026/results/
+__pycache__/
