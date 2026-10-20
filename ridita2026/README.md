@@ -7,7 +7,7 @@ Scripts used for the paper *A Methodological Procedure and Supporting Dashboard 
 | Input | Status |
 |---|---|
 | REH and REA volumes (`data/nodes_edges_reh.csv`, `data/nodes_edges_rea.csv`), from DECEA GeoAISWEB XML (`data/xml/`) | Public, in this repository |
-| Airport-flow envelopes, radial method (`data/approach_surfaces_*.csv`) and stream method (`data/approach_surfaces_*_stream.csv`); the along-axis method (`data/approach_surfaces_*_axis_traffic_align30.csv`) was the alternative in release `ridita-2026` | Public derived data, in this repository |
+| Airport-flow envelopes, radial method (`data/approach_surfaces_*.csv`) and stream method (`data/approach_surfaces_*_stream.csv`); the along-axis method, the alternative in release `ridita-2026`, is only in releases `ridita-2026` and `ridita-2026.1` | Public derived data, in this repository |
 | Frozen UAM scenario files (below) | **Not in this repository.** Available on request from the authors |
 | Flightradar24 tracks, December 2022 (31 daily `.Rda` files) | **Licensed; not distributed.** Needed only to rebuild the envelopes and for the traffic counts |
 | SIGMA-Sky Product II report (demand scenarios) | Public, at https://sigma.ita.br/sky/produtos |

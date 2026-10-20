@@ -2,15 +2,14 @@
 # Empirical approach/departure envelopes for SBGR and SBSP from Flightradar24 tracks
 # ==================================================================================
 # Usage:
-#   Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|axis|stream]
-#                                             [--lateral=centreline|traffic] [--align=<deg>]
+#   Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]
 #
-# Defaults (--stations=radial --lateral=centreline, no --align) reproduce the published
-# envelopes. The alternative options follow the approach direction instead (steps 1, 3 and 5
-# below); their outputs carry a suffix, e.g. approach_surfaces_SBSP_axis_traffic_align30.csv, so
-# the published files are never overwritten. --stations=stream builds one envelope per
-# direction-resolved traffic stream instead of one per side of the airport (see "Stream
-# envelopes" below); its outputs carry the suffix _stream.
+# The default (--stations=radial) reproduces the published envelopes, one per side of the
+# airport. --stations=stream builds one envelope per direction-resolved traffic stream instead
+# (see "Stream envelopes" below); its outputs carry the suffix _stream, so the published files
+# are never overwritten. Releases ridita-2026 and ridita-2026.1 also had an along-axis variant
+# (--stations=axis --lateral=traffic --align=30); it was removed because it pooled the traffic
+# streams that share a side of the airport into irregular cross-sections.
 #
 # <fr24_dir> holds one .Rda file per day, each containing a data frame `df` with one row per
 # track sample and the columns
@@ -28,30 +27,20 @@
 #   1. Keep arrivals (ARR_40, GND_ARR) and departures (DEP_40, GND_DEP) within 0.3 deg of the
 #      airport, trimming ground samples at touchdown (first zero altitude) and lift-off (last
 #      zero altitude). The heading at those samples identifies the runway direction; parallel
-#      runways are grouped. With --align=<deg>, only samples whose heading is within <deg> of
-#      that runway heading are kept (final approach and initial climb rather than downwind,
-#      base or turning legs).
+#      runways are grouped.
 #   2. Airborne altitudes are used as reported (barometric, no QNH correction); on-ground zeros
 #      take the field elevation.
 #   3. For each side of the airport reference point (ARP) along the runway axis, samples in that
-#      half-plane are assigned to stations every 0.1 NM up to 10 NM, keeping the nearest sample
-#      of each flight; stations need at least 5 flights. The station distance is the radial
-#      distance from the ARP (--stations=radial, published; samples within 10 NM of the ARP) or
-#      the distance along the runway axis, i.e. along the approach direction (--stations=axis;
-#      samples up to 10 NM along the axis at any cross-axis offset). Stations are always placed
-#      on the extended runway axis at that distance, so radial stationing assigns a sample flown
-#      off the axis to a station farther out than its along-axis position.
-#   4. At each station: 5th (P5) and 95th (P95) altitude percentiles, smoothed with a cubic
-#      spline (spar = 0.5), and lateral percentiles: the P95 of the absolute cross-axis offset
-#      (--lateral=centreline), or the P5 and P95 of the signed offset (--lateral=traffic), whose
-#      band centre and width are smoothed with the same spline, the width on a log scale, so that
-#      the smoothed band stays ordered and positive (see smooth_traffic_lateral).
-#   5. Each cross-section is bounded vertically by the smoothed P5 and P95 altitudes. Laterally
-#      it is centred on the extended runway axis and 2 x the absolute-offset P95 wide
-#      (--lateral=centreline, published), or centred on the observed traffic and spanning its
-#      smoothed P5-P95 band (--lateral=traffic).
+#      half-plane within 10 NM of the ARP are assigned to stations every 0.1 NM of radial
+#      distance, keeping the nearest sample of each flight; stations need at least 5 flights.
+#      Stations are placed on the extended runway axis at that distance, so a sample flown off
+#      the axis is assigned to a station farther out than its along-axis position.
+#   4. At each station: 5th (P5) and 95th (P95) altitude percentiles and the P95 of the absolute
+#      cross-axis offset, each smoothed with a cubic spline (spar = 0.5).
+#   5. Each cross-section is bounded vertically by the smoothed P5 and P95 altitudes, centred on
+#      the extended runway axis and 2 x the smoothed absolute-offset P95 wide.
 #
-# Stream envelopes (--stations=stream), per airport, after steps 1 and 2 (--align is ignored):
+# Stream envelopes (--stations=stream), per airport, after steps 1 and 2:
 #   S1. Each flight's last pass through the 10-NM circle around the ARP (arrivals: up to
 #       touchdown; departures: from lift-off), ordered from the runway outwards.
 #   S2. Per flow (ARR, DEP) and runway direction, the paths, resampled along their length, are
@@ -80,25 +69,20 @@ opt_value <- function(name, default, allowed) {
   if (!value %in% allowed) stop(sprintf("--%s must be one of: %s", name, paste(allowed, collapse = ", ")))
   value
 }
-STATIONS <- opt_value("stations", "radial", c("radial", "axis", "stream"))
-LATERAL <- opt_value("lateral", "centreline", c("centreline", "traffic"))
-ALIGN_DEG <- suppressWarnings(as.numeric(opt_value("align", "none", c("none", as.character(1:180)))))
+unknown <- setdiff(sub("=.*", "", grep("^--", all_args, value = TRUE)), "--stations")
+if (length(unknown)) stop(sprintf("Unknown option(s): %s (the along-axis options --stations=axis, --lateral and --align were removed after release ridita-2026.1)",
+                                  paste(unknown, collapse = ", ")))
+STATIONS <- opt_value("stations", "radial", c("radial", "stream"))
 args <- all_args[!grepl("^--", all_args)]
-if (length(args) < 1) stop("Usage: Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|axis|stream] [--lateral=centreline|traffic] [--align=<deg>]")
+if (length(args) < 1) stop("Usage: Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]")
 FR24_DIR <- args[1]
 script_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 script_dir <- if (length(script_arg)) dirname(normalizePath(sub("^--file=", "", script_arg))) else getwd()
 OUT_DIR <- if (length(args) >= 2) args[2] else file.path(script_dir, "data")
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
-SUFFIX <- if (STATIONS == "stream") "_stream" else if (STATIONS == "radial" && LATERAL == "centreline" && is.na(ALIGN_DEG)) "" else
-  sprintf("_%s_%s%s", STATIONS, LATERAL, if (is.na(ALIGN_DEG)) "" else sprintf("_align%g", ALIGN_DEG))
-if (STATIONS == "stream") {
-  if (LATERAL != "centreline" || !is.na(ALIGN_DEG)) cat("Note: --lateral and --align do not apply to --stations=stream\n")
-  cat("Stations: along the mean path of each direction-resolved stream\n")
-} else {
-  cat(sprintf("Stations: %s; lateral: %s; heading: %s\n", STATIONS, LATERAL,
-              if (is.na(ALIGN_DEG)) "all samples" else sprintf("within %g deg of the runway", ALIGN_DEG)))
-}
+SUFFIX <- if (STATIONS == "stream") "_stream" else ""
+cat(if (STATIONS == "stream") "Stations: along the mean path of each direction-resolved stream\n" else
+  "Stations: radial distance from the ARP, per side of the airport\n")
 
 DISTANCE_STEP_NM <- 0.1
 MAX_DISTANCE_NM <- 10.0
@@ -129,29 +113,6 @@ smooth_col <- function(x, y) {
   predict(smooth.spline(x, y, spar = SMOOTHING_SPL), x)$y
 }
 
-# Traffic-centred lateral band (--lateral=traffic). The centre and the width of the signed
-# P5-P95 band are smoothed separately, the width on a log scale, so the smoothed band is ordered
-# and positive (smoothing the two percentiles independently let them cross where the band changes
-# abruptly, e.g. where a second traffic stream enters the sample, and a minimum width then hid
-# it). The spline spreads such a step over about +/-1 NM and overshoots it, so each smoothed edge
-# is kept within the outermost raw edges within LOCAL_RANGE_NM of its station, and the band is
-# widened where needed to contain the station's own raw P5-P95 band. The result is never narrower
-# than the observed band and never wider than the observed extremes nearby. Raw widths below
-# MIN_WIDTH_NM (a numerical guard; none in the December 2022 data) are raised to it and counted.
-MIN_WIDTH_NM <- 0.001
-LOCAL_RANGE_NM <- 1.0
-smooth_traffic_lateral <- function(x, c5, c95) {
-  stopifnot(length(x) == length(c5), length(x) == length(c95), all(is.finite(c5)), all(is.finite(c95)), all(c95 >= c5))
-  floored <- sum(c95 - c5 < MIN_WIDTH_NM)
-  mid <- (c5 + c95) / 2
-  lo_raw <- pmin(c5, mid - MIN_WIDTH_NM / 2); hi_raw <- pmax(c95, mid + MIN_WIDTH_NM / 2)
-  centre <- smooth_col(x, mid); half <- exp(smooth_col(x, log(hi_raw - lo_raw))) / 2
-  near <- lapply(x, function(xi) which(abs(x - xi) <= LOCAL_RANGE_NM + 1e-9))
-  lo <- pmin(lo_raw, pmax(centre - half, sapply(near, function(k) min(lo_raw[k]))))
-  hi <- pmax(hi_raw, pmin(centre + half, sapply(near, function(k) max(hi_raw[k]))))
-  list(centre = (lo + hi) / 2, width = hi - lo, floored = floored)
-}
-
 # ------------------------------------------------------------------------------------------
 # Direction-resolved ("stream") envelopes, --stations=stream
 # ------------------------------------------------------------------------------------------
@@ -162,8 +123,12 @@ smooth_traffic_lateral <- function(x, c5, c95) {
 # least STREAM_MIN_SEP_NM apart on average. Each stream gets stations every DISTANCE_STEP_NM along
 # its mean path, from the runway outwards; at each station, the P5/P95 altitude and signed
 # cross-path offset of its flights (nearest sample per flight) are smoothed with about one spline
-# degree of freedom per STREAM_SMOOTH_NM of path. Streams are single-mode, so the lateral band is
-# only kept within the local raw range (no forced containment, unlike --lateral=traffic).
+# degree of freedom per STREAM_SMOOTH_NM of path, the width on a log scale so it stays positive;
+# each smoothed centre and width is kept within the raw values within LOCAL_RANGE_NM of its
+# station (no overshoot or collapse at abrupt changes). Raw widths below MIN_WIDTH_NM (a
+# numerical guard) are raised to it.
+MIN_WIDTH_NM <- 0.001
+LOCAL_RANGE_NM <- 1.0
 STREAM_RADIUS_NM <- 10
 STREAM_FEATURE_POINTS <- 16
 STREAM_REF_POINTS <- 80
@@ -346,7 +311,6 @@ for (icao in names(airports)) {
   traj <- bind_rows(arr, dep) %>% filter(!is.na(rwy_head)) %>%
     mutate(rwy = ifelse(hdiff(rwy_head, a$axis) <= hdiff(rwy_head, a$axis + 180), a$rwy[1], a$rwy[2]),
            alt_msl_m = ifelse(alt == 0, a$elev_m, alt * FT))
-  if (!is.na(ALIGN_DEG) && STATIONS != "stream") traj <- traj %>% filter(hdiff(head, rwy_head) <= ALIGN_DEG)
 
   # Local runway-axis frame centred on the ARP (NM)
   H <- a$axis * pi / 180
@@ -374,9 +338,8 @@ for (icao in names(airports)) {
   for (sgn in c(1, -1)) {
     side <- if (sgn > 0) a$pos_side else a$neg_side
     bearing <- if (sgn > 0) a$axis else (a$axis + 180) %% 360
-    # Station distance: radial distance r (within 10 NM of the ARP), or distance along the
-    # runway axis sgn * s (up to 10 NM along the axis)
-    st <- traj %>% mutate(r = sqrt(e^2 + n^2), dist = if (STATIONS == "axis") sgn * s else r) %>%
+    # Station distance: radial distance from the ARP (within 10 NM), on this side of the airport
+    st <- traj %>% mutate(dist = sqrt(e^2 + n^2)) %>%
       filter(sgn * s >= 0, dist <= MAX_DISTANCE_NM + 0.05) %>%
       mutate(k = round(dist / DISTANCE_STEP_NM), err = abs(dist - k * DISTANCE_STEP_NM)) %>%
       group_by(indicat, k) %>% slice_min(err, n = 1, with_ties = FALSE) %>% ungroup()
@@ -398,21 +361,8 @@ for (icao in names(airports)) {
       cat(sprintf("  %s %s: no station with %d flights; side skipped\n", icao, side, MIN_POINTS))
       next
     }
-    if (LATERAL == "traffic") {
-      lateral <- smooth_traffic_lateral(bands$distance_nm, bands$c_p5_nm, bands$c_p95_nm)
-      bands <- bands %>% mutate(centre_nm = lateral$centre, width_nm = lateral$width)
-      if (lateral$floored > 0)
-        cat(sprintf("  %s %s: %d stations with a raw lateral band below %.3f NM\n", icao, side, lateral$floored, MIN_WIDTH_NM))
-    } else {
-      bands <- bands %>% mutate(centre_nm = 0, width_nm = 2 * lat_s)
-    }
+    bands <- bands %>% mutate(width_nm = 2 * lat_s)
     ll <- t(sapply(bands$distance_nm, function(d) dest_point(a$lat, a$lon, bearing, d)))
-    if (LATERAL == "traffic") {
-      # shift each station from the runway axis to the centre of the observed traffic
-      # (c is measured to the right of the axis heading on both sides)
-      ll <- t(sapply(seq_len(nrow(bands)), function(i)
-        dest_point(unname(ll[i, "lat"]), unname(ll[i, "lon"]), a$axis + 90, bands$centre_nm[i])))
-    }
     bands <- bands %>% mutate(lat = ll[, "lat"], lon = ll[, "lon"], icao = icao, side = side, bearing = bearing)
     station_rows[[length(station_rows) + 1]] <- bands
 
@@ -454,11 +404,6 @@ stations <- bind_rows(station_rows) %>%
   transmute(icao, side, bearing_deg = bearing, station = k, distance_nm, lat, lon, n_flights,
             p5_alt_m = p5_m, p95_alt_m = p95_m, mean_alt_m = mean_m,
             p95_abs_lateral_nm = lat_p95_nm, p5_lateral_nm = c_p5_nm, p95_lateral_nm = c_p95_nm,
-            lower_limit_m = lo_m, upper_limit_m = hi_m, half_width_nm = lat_s,
-            centre_offset_nm = centre_nm, width_nm)
-if (SUFFIX == "") {
-  # published column set
-  stations <- stations %>% select(-centre_offset_nm, -width_nm)
-}
+            lower_limit_m = lo_m, upper_limit_m = hi_m, half_width_nm = lat_s)
 write.csv(stations, file.path(OUT_DIR, sprintf("approach_surfaces_stations%s.csv", SUFFIX)), row.names = FALSE)
 cat("Done.\n")

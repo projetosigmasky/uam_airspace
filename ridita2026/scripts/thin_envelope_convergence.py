@@ -10,7 +10,7 @@ between the refined corridors (cruise segments) and that envelope is recomputed 
 Shares are relative to the corridor cruise volume at 50 m (Table 2).
 Usage: python thin_envelope_convergence.py [cell sizes...]   (default 50 25 10 5)
 ENV_SBSP_CSV overrides the envelope (default data/approach_surfaces_SBSP_stream.csv; the along-axis
-envelope, data/approach_surfaces_SBSP_axis_traffic_align30.csv, was checked the same way).
+envelope of release ridita-2026 was checked the same way).
 Writes thin_envelope_convergence.csv in RIDITA_RESULTS.
 """
 import importlib.util
