@@ -2,7 +2,13 @@
 # Empirical approach/departure envelopes for SBGR and SBSP from Flightradar24 tracks
 # ==================================================================================
 # Usage:
-#   Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir]
+#   Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|axis]
+#                                             [--lateral=centreline|traffic] [--align=<deg>]
+#
+# Defaults (--stations=radial --lateral=centreline, no --align) reproduce the published
+# envelopes. The alternative options follow the approach direction instead (steps 1, 3 and 5
+# below); their outputs carry a suffix, e.g. approach_surfaces_SBSP_axis_traffic_align30.csv, so
+# the published files are never overwritten.
 #
 # <fr24_dir> holds one .Rda file per day, each containing a data frame `df` with one row per
 # track sample and the columns
@@ -20,16 +26,26 @@
 #   1. Keep arrivals (ARR_40, GND_ARR) and departures (DEP_40, GND_DEP) within 0.3 deg of the
 #      airport, trimming ground samples at touchdown (first zero altitude) and lift-off (last
 #      zero altitude). The heading at those samples identifies the runway direction; parallel
-#      runways are grouped.
+#      runways are grouped. With --align=<deg>, only samples whose heading is within <deg> of
+#      that runway heading are kept (final approach and initial climb rather than downwind,
+#      base or turning legs).
 #   2. Airborne altitudes are used as reported (barometric, no QNH correction); on-ground zeros
 #      take the field elevation.
 #   3. For each side of the airport reference point (ARP) along the runway axis, samples in that
-#      half-plane are assigned to stations every 0.1 NM of radial distance up to 10 NM, keeping
-#      the nearest sample of each flight. Stations need at least 5 flights.
-#   4. At each station: 5th (P5) and 95th (P95) altitude percentiles and the P95 of the absolute
-#      cross-axis deviation, each smoothed with a cubic spline (spar = 0.5).
-#   5. Each cross-section is centred on the extended runway axis, 2 x the lateral percentile
-#      wide, and bounded vertically by the smoothed P5 and P95.
+#      half-plane are assigned to stations every 0.1 NM up to 10 NM, keeping the nearest sample
+#      of each flight; stations need at least 5 flights. The station distance is the radial
+#      distance from the ARP (--stations=radial, published; samples within 10 NM of the ARP) or
+#      the distance along the runway axis, i.e. along the approach direction (--stations=axis;
+#      samples up to 10 NM along the axis at any cross-axis offset). Stations are always placed
+#      on the extended runway axis at that distance, so radial stationing assigns a sample flown
+#      off the axis to a station farther out than its along-axis position.
+#   4. At each station: 5th (P5) and 95th (P95) altitude percentiles and of the signed
+#      cross-axis offset, and the P95 of the absolute offset, each smoothed with a cubic spline
+#      (spar = 0.5).
+#   5. Each cross-section is bounded vertically by the smoothed P5 and P95 altitudes. Laterally
+#      it is centred on the extended runway axis and 2 x the absolute-offset P95 wide
+#      (--lateral=centreline, published), or centred on the observed traffic and spanning the
+#      P5-P95 of the signed offset (--lateral=traffic).
 #
 # Outputs in <out_dir> (default: data/ next to this script):
 #   approach_surfaces_<ICAO>.csv     dashboard route files (route, id, name, lat, lon, type,
@@ -41,13 +57,27 @@
 
 suppressMessages(library(dplyr))
 
-args <- commandArgs(trailingOnly = TRUE)
-if (length(args) < 1) stop("Usage: Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir]")
+all_args <- commandArgs(trailingOnly = TRUE)
+opt_value <- function(name, default, allowed) {
+  hit <- grep(paste0("^--", name, "="), all_args, value = TRUE)
+  value <- if (length(hit)) sub(paste0("^--", name, "="), "", hit[length(hit)]) else default
+  if (!value %in% allowed) stop(sprintf("--%s must be one of: %s", name, paste(allowed, collapse = ", ")))
+  value
+}
+STATIONS <- opt_value("stations", "radial", c("radial", "axis"))
+LATERAL <- opt_value("lateral", "centreline", c("centreline", "traffic"))
+ALIGN_DEG <- suppressWarnings(as.numeric(opt_value("align", "none", c("none", as.character(1:180)))))
+args <- all_args[!grepl("^--", all_args)]
+if (length(args) < 1) stop("Usage: Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|axis] [--lateral=centreline|traffic]")
 FR24_DIR <- args[1]
 script_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 script_dir <- if (length(script_arg)) dirname(normalizePath(sub("^--file=", "", script_arg))) else getwd()
 OUT_DIR <- if (length(args) >= 2) args[2] else file.path(script_dir, "data")
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
+SUFFIX <- if (STATIONS == "radial" && LATERAL == "centreline" && is.na(ALIGN_DEG)) "" else
+  sprintf("_%s_%s%s", STATIONS, LATERAL, if (is.na(ALIGN_DEG)) "" else sprintf("_align%g", ALIGN_DEG))
+cat(sprintf("Stations: %s; lateral: %s; heading: %s\n", STATIONS, LATERAL,
+            if (is.na(ALIGN_DEG)) "all samples" else sprintf("within %g deg of the runway", ALIGN_DEG)))
 
 DISTANCE_STEP_NM <- 0.1
 MAX_DISTANCE_NM <- 10.0
@@ -120,6 +150,7 @@ for (icao in names(airports)) {
   traj <- bind_rows(arr, dep) %>% filter(!is.na(rwy_head)) %>%
     mutate(rwy = ifelse(hdiff(rwy_head, a$axis) <= hdiff(rwy_head, a$axis + 180), a$rwy[1], a$rwy[2]),
            alt_msl_m = ifelse(alt == 0, a$elev_m, alt * FT))
+  if (!is.na(ALIGN_DEG)) traj <- traj %>% filter(hdiff(head, rwy_head) <= ALIGN_DEG)
 
   # Local runway-axis frame centred on the ARP (NM)
   H <- a$axis * pi / 180
@@ -131,9 +162,11 @@ for (icao in names(airports)) {
   for (sgn in c(1, -1)) {
     side <- if (sgn > 0) a$pos_side else a$neg_side
     bearing <- if (sgn > 0) a$axis else (a$axis + 180) %% 360
-    st <- traj %>% mutate(r = sqrt(e^2 + n^2)) %>%
-      filter(sgn * s >= 0, r <= MAX_DISTANCE_NM + 0.05) %>%
-      mutate(k = round(r / DISTANCE_STEP_NM), err = abs(r - k * DISTANCE_STEP_NM)) %>%
+    # Station distance: radial distance r (within 10 NM of the ARP), or distance along the
+    # runway axis sgn * s (up to 10 NM along the axis)
+    st <- traj %>% mutate(r = sqrt(e^2 + n^2), dist = if (STATIONS == "axis") sgn * s else r) %>%
+      filter(sgn * s >= 0, dist <= MAX_DISTANCE_NM + 0.05) %>%
+      mutate(k = round(dist / DISTANCE_STEP_NM), err = abs(dist - k * DISTANCE_STEP_NM)) %>%
       group_by(indicat, k) %>% slice_min(err, n = 1, with_ties = FALSE) %>% ungroup()
     bands <- st %>% group_by(k) %>% summarise(
       n_flights = n(),
@@ -148,8 +181,21 @@ for (icao in names(airports)) {
              p5_s = smooth_col(distance_nm, p5_m),
              p95_s = smooth_col(distance_nm, p95_m),
              lat_s = pmax(0.001, smooth_col(distance_nm, lat_p95_nm)),
-             lo_m = pmin(p5_s, p95_s), hi_m = pmax(p5_s, p95_s))
+             lo_m = pmin(p5_s, p95_s), hi_m = pmax(p5_s, p95_s),
+             c5_s = smooth_col(distance_nm, c_p5_nm), c95_s = smooth_col(distance_nm, c_p95_nm),
+             centre_nm = if (LATERAL == "traffic") (c5_s + c95_s) / 2 else 0,
+             width_nm = if (LATERAL == "traffic") pmax(0.001, c95_s - c5_s) else 2 * lat_s)
+    if (nrow(bands) == 0) {
+      cat(sprintf("  %s %s: no station with %d flights; side skipped\n", icao, side, MIN_POINTS))
+      next
+    }
     ll <- t(sapply(bands$distance_nm, function(d) dest_point(a$lat, a$lon, bearing, d)))
+    if (LATERAL == "traffic") {
+      # shift each station from the runway axis to the centre of the observed traffic
+      # (c is measured to the right of the axis heading on both sides)
+      ll <- t(sapply(seq_len(nrow(bands)), function(i)
+        dest_point(unname(ll[i, "lat"]), unname(ll[i, "lon"]), a$axis + 90, bands$centre_nm[i])))
+    }
     bands <- bands %>% mutate(lat = ll[, "lat"], lon = ll[, "lon"], icao = icao, side = side, bearing = bearing)
     station_rows[[length(station_rows) + 1]] <- bands
 
@@ -159,15 +205,15 @@ for (icao in names(airports)) {
       flights = nrow(flights_side),
       arrivals = sum(flights_side$flow == "ARR"), departures = sum(flights_side$flow == "DEP"),
       lo_ft_min = round(min(bands$lo_m) / FT), hi_ft_max = round(max(bands$hi_m) / FT),
-      width_nm_max = round(2 * max(bands$lat_s), 2))
+      width_nm_max = round(max(bands$width_nm), 2))
   }
 
   out <- bind_rows(station_rows) %>% filter(icao == !!icao) %>% group_by(side) %>%
     mutate(id = row_number()) %>% ungroup() %>%
     transmute(route = side, id, name = sprintf("%s_Node%d", side, id), lat, lon, type = "Node",
               altitude = (lo_m + hi_m) / 2, height = pmax(0.001, hi_m - lo_m),
-              width = 2 * lat_s * 1852)
-  write.csv(out, file.path(OUT_DIR, sprintf("approach_surfaces_%s.csv", icao)), row.names = FALSE)
+              width = width_nm * 1852)
+  write.csv(out, file.path(OUT_DIR, sprintf("approach_surfaces_%s%s.csv", icao, SUFFIX)), row.names = FALSE)
 
   cat(sprintf("\n%s: %d flights with runway heading (ARR %d, DEP %d)\n", icao,
               n_distinct(traj$indicat), n_distinct(traj$indicat[traj$flow == "ARR"]),
@@ -177,11 +223,16 @@ for (icao in names(airports)) {
 
 summ <- bind_rows(summary_rows)
 print(summ)
-write.csv(summ, file.path(OUT_DIR, "approach_surfaces_summary.csv"), row.names = FALSE)
+write.csv(summ, file.path(OUT_DIR, sprintf("approach_surfaces_summary%s.csv", SUFFIX)), row.names = FALSE)
 stations <- bind_rows(station_rows) %>%
   transmute(icao, side, bearing_deg = bearing, station = k, distance_nm, lat, lon, n_flights,
             p5_alt_m = p5_m, p95_alt_m = p95_m, mean_alt_m = mean_m,
             p95_abs_lateral_nm = lat_p95_nm, p5_lateral_nm = c_p5_nm, p95_lateral_nm = c_p95_nm,
-            lower_limit_m = lo_m, upper_limit_m = hi_m, half_width_nm = lat_s)
-write.csv(stations, file.path(OUT_DIR, "approach_surfaces_stations.csv"), row.names = FALSE)
+            lower_limit_m = lo_m, upper_limit_m = hi_m, half_width_nm = lat_s,
+            centre_offset_nm = centre_nm, width_nm)
+if (SUFFIX == "") {
+  # published column set
+  stations <- stations %>% select(-centre_offset_nm, -width_nm)
+}
+write.csv(stations, file.path(OUT_DIR, sprintf("approach_surfaces_stations%s.csv", SUFFIX)), row.names = FALSE)
 cat("Done.\n")
