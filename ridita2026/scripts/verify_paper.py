@@ -75,9 +75,9 @@ claim("3.3", "36 original pairs 11.90 NM, 28 unchanged", "11.90 / 28", f"{l12[co
       round(l12[common].mean() / KM_NM, 2) == 11.90 and unchanged == 28)
 claim("3.3", "69 new pairs average 10.66 NM", "69 / 10.66", f"{len(new)} / {l12[new].mean() / KM_NM:.2f}",
       len(new) == 69 and round(l12[new].mean() / KM_NM, 2) == 10.66)
-claim("2.1", "9 terminals/36 pairs; 15/105", "9 / 15",
-      f"{len(set(pd.read_csv(B + 'scenarios/routes_uam_detailed_rmsp.csv').query('type in [\"Vertiport\",\"Airport\"]').name))} / "
-      f"{len(set(pd.read_csv(B + 'new_scenario/routes_uam_detailed_rmsp.csv').query('type in [\"Vertiport\",\"Airport\"]').name))}", True)
+t6, t12 = (len(set(pd.read_csv(B + f).query('type in ["Vertiport", "Airport"]').name))
+           for f in ("scenarios/routes_uam_detailed_rmsp.csv", "new_scenario/routes_uam_detailed_rmsp.csv"))
+claim("2.1", "9 terminals/36 pairs; 15/105", "9 / 15", f"{t6} / {t12}", (t6, t12) == (9, 15))
 
 
 # ---------------------------------------------------------------- 3.1 refinement edits
@@ -100,6 +100,7 @@ def edits(f0, f1):
     return dict(n=len(m), changed=int(changed.sum()), moved=int(moved.sum()), lowered=int(lowered.sum()),
                 both=int((moved & lowered).sum()), tracks=m[changed].route.nunique(), routes=a.route.nunique(),
                 labels=m[changed].name0.nunique(), other=int(other), term=int(term_moved), dist=np.round(np.sort(np.unique(np.round(dist, -1))), 0),
+                by_d={float(d): set(g.name0) for d, g in m[moved].assign(d=np.round(np.asarray(dist), -1)).groupby("d")},
                 alt=sorted(set(np.round(m[lowered].altitude1, 1))), pct=100 * (t1 / t0 - 1), dkm=t1 - t0)
 
 
@@ -118,7 +119,17 @@ claim("2.2", "edited records moved AND lowered; names/widths/heights/types uncha
              f"12vp moved {e12['moved']} lowered {e12['lowered']} both {e12['both']} other {e12['other']} terminals {e12['term']}",
       e6['moved'] == e6['lowered'] == e6['both'] and e12['moved'] == e12['lowered'] == e12['both'] and e6['other'] == e12['other'] == 0 and e6['term'] == e12['term'] == 0)
 claim("2.2", "lowered to 3,000 ft", "914.4 m", f"6vp {e6['alt']}, 12vp {e12['alt']}", e6['alt'] == e12['alt'] == [914.4])
-claim("2.2/T1", "waypoint shifts (m), rounded to 10 m", "1000, 1500, 2000 (+0.5 km in 12vp)", f"6vp {list(e6['dist'])}; 12vp {list(e12['dist'])}", True)
+# 1.0 / 1.5 km cross-track; 2.0 km along-route combined with 0.5, 1.0 or 1.5 km cross-track
+allowed = (1000.0, 1500.0, math.hypot(2000, 500), math.hypot(2000, 1000), math.hypot(2000, 1500))
+along = [{n for d, ns in e["by_d"].items() if d > 1900 for n in ns} for e in (e6, e12)]
+cross15 = [{n for d, ns in e["by_d"].items() if abs(d - 1500) <= 20 or abs(d - 2500) <= 20 for n in ns} for e in (e6, e12)]
+n05 = sum(len(ns) for e in (e6, e12) for d, ns in e["by_d"].items() if abs(d - allowed[2]) <= 20)
+max_nm = max(max(e["by_d"]) for e in (e6, e12)) / NM
+claim("2.2/T1", "shifts: 1.0/1.5 km cross-track; 2.0 km along-route at 1-2 points (two turning points), once with 0.5 km; 1.5 km at 2-3 points; resultant <= 1.35 NM",
+      "1-2 / 2 / 1 / 2-3 / 1.35", f"6vp {list(e6['dist'])}, 12vp {list(e12['dist'])} m; along-route {[len(a) for a in along]} ({len(along[0] | along[1])} turning points); "
+      f"0.5-km once: {n05}; 1.5 km {[len(c) for c in cross15]}; max {max_nm:.3f} NM",
+      all(min(abs(d - x) for x in allowed) <= 20 for e in (e6, e12) for d in e["by_d"]) and [len(a) for a in along] == [1, 2]
+      and len(along[0] | along[1]) == 2 and n05 == 1 and all(2 <= len(c) <= 3 for c in cross15) and max_nm <= 1.35 + 5e-4)
 
 
 # ---------------------------------------------------------------- Table 1: generated track spacing
@@ -142,7 +153,8 @@ claim("T1", "generated spacing 0.27 NM / width 0.52 NM (perpendicular, straight 
       f"{np.median(perp) / NM:.3f} / {(np.median(perp) + 457) / NM:.3f} (waypoint-to-waypoint median {np.median(sep) / NM:.3f})",
       round(np.median(perp) / NM, 2) == 0.27 and round((np.median(perp) + 457) / NM, 2) == 0.52)
 claim("T1", "offsets widened by 11% (nominal +/-750 ft)", "11%", f"{np.median(perp) / 2 / 228.6:.4f} x nominal (median)", round(np.median(perp) / 2 / 228.6, 2) == 1.11)
-claim("T1", "stored corridor height and width", "1,000 ft; 457 m lanes", f"heights {sorted(d.height.unique())} m, widths {sorted(d.width.unique())} m", True)
+claim("T1", "stored corridor height and width", "1,000 ft; 457 m lanes", f"heights {sorted(d.height.unique())} m, widths {sorted(d.width.unique())} m",
+      sorted(d.height.unique()) == [305] and sorted(d.width.unique()) == [457])
 
 
 # ---------------------------------------------------------------- 2.1 / 2.2 REH and REA
@@ -156,14 +168,15 @@ rea = pd.read_csv(REPO + "nodes_edges_rea.csv").groupby("route", sort=False).agg
 xr, xa = xml_rows(REPO + "xml/CV_REH_XP_SAO_PAULO.xml"), xml_rows(REPO + "xml/CV_REA_XP1_SAO_PAULO.xml")
 claim("2.1", "106 REH / 119 REA", "106 / 119", f"{len(reh)} / {len(rea)} (XML {len(xr)} / {len(xa)})", (len(reh), len(rea)) == (106, 119))
 claim("2.1", "REH widths 0.27/0.11 NM; REA 1-3 NM", "0.27, 0.11 / 1-3",
-      f"REH {sorted(np.round(reh.w.unique() / NM, 2))}; REA {sorted(np.round(rea.w.unique() / NM, 2))}", True)
+      f"REH {sorted(np.round(reh.w.unique() / NM, 2))}; REA {sorted(np.round(rea.w.unique() / NM, 2))}",
+      sorted(np.round(reh.w.unique() / NM, 2)) == [0.11, 0.27] and sorted(np.round(rea.w.unique() / NM, 2)) == [1.0, 2.0, 3.0])
 mh_reh, mh_rea = reh.h.mode()[0], rea.h.mode()[0]
 claim("2.1", "mean thickness 187 ft for 67 REH; 1,161 ft for 19 REA", "187/67; 1161/19",
       f"{mh_reh / FT:.0f} ft x {(reh.h == mh_reh).sum()}; {mh_rea / FT:.0f} ft x {(rea.h == mh_rea).sum()}",
       (round(mh_reh / FT), (reh.h == mh_reh).sum(), round(mh_rea / FT), (rea.h == mh_rea).sum()) == (187, 67, 1161, 19))
 no_alt = sum(1 for r in xr if not (r.get('altcomp') or (r.get('altmax') and r.get('altmin')))) , \
          sum(1 for r in xa if not (r.get('altcomp') or r.get('altcompb_to_a') or (r.get('altmax') and r.get('altmin')) or (r.get('altmaxa_to_b') and r.get('altmina_to_b')) or (r.get('altmaxb_to_a') and r.get('altminb_to_a'))))
-claim("2.1", "(not in text) routes with no vertical data take a fallback altitude", "-", f"REH {no_alt[0]}, REA {no_alt[1]}", True)
+rows.append(("2.1", "(not in text) routes with no vertical data take a fallback altitude", "-", f"REH {no_alt[0]}, REA {no_alt[1]}", "INFO"))
 reh_lo, reh_hi = (reh.a - reh.h / 2) / FT, (reh.a + reh.h / 2) / FT
 inband = ((reh_lo >= 2990) & (reh_hi <= 3510)).mean()
 claim("2.2", "REH mostly 3,000-3,500 ft", "mostly", f"{100 * inband:.0f}% of REH volumes within 3,000-3,500 ft; axes {reh.a.min() / FT:.0f}-{reh.a.max() / FT:.0f} ft", inband > 0.5)
@@ -171,7 +184,6 @@ pub = rea[(rea.h != mh_rea)]
 fl = (pub.a - pub.h / 2) / FT
 claim("2.2", "78% of REA with published bands have floors < 4,500 ft, median 4,000", "78% / 4,000",
       f"{100 * (fl < 4499).mean():.0f}% of {len(pub)} / {fl.median():.0f}", round(100 * (fl < 4499).mean()) == 78 and round(fl.median()) == 4000)
-claim("3.2", "REH tops at least 399 ft below 4,000-ft axis (REH crossed by the 6vp network)", ">= 399", "see overlap_volume sweep: REH share at 800 ft = 0.005%", True)
 
 
 # ---------------------------------------------------------------- 2.3 envelopes
@@ -209,15 +221,18 @@ checks = [
     ("3.1", "19 segments >=10% in SBSP, 7 >=50%", (19, 7), (v[r6r]["rows"]["ENV_SBSP"]["segments"][">=10%"], v[r6r]["rows"]["ENV_SBSP"]["segments"][">=50%"]), 0),
     ("3.2", "600 ft: 16.1 | 17.7", (16.1, 17.7), (v[r6r]["sweep"]["600"]["pct"], v[r12r]["sweep"]["600"]["pct"]), 1),
     ("3.2", "axis inside: 11.8 | 14.1", (11.8, 14.1), (v[r6r]["sweep"]["0"]["pct"], v[r12r]["sweep"]["0"]["pct"]), 1),
-    ("3.2", "axis inside mostly SBSP (points)", ("most",), (v[r6r]["sweep"]["0"]["by_layer"]["ENV_SBSP"], v[r12r]["sweep"]["0"]["by_layer"]["ENV_SBSP"]), None),
-    ("3.2", "800-ft at 4,000 ft: practically no REH (6vp/12vp initial)", ("~0",), (v[r6i]["sweep"]["800"]["by_layer"]["REH"], v[r12i]["sweep"]["800"]["by_layer"]["REH"]), None),
 ]
 for sec, txt, paper, comp, nd in checks:
-    if nd is None:
-        claim(sec, txt, str(paper), str(tuple(round(x, 3) for x in comp)), True)
-        continue
     ok = all(round(c, nd) == p if nd else round(c) == p for p, c in zip(paper, comp))
     claim(sec, txt, str(paper), str(tuple(round(c, 2) for c in comp)), ok)
+
+slab = [v[c]["sweep"]["0"] for c in (r6r, r12r)]
+claim("3.2", "footprint at the axis altitude inside other volumes: mostly the SBSP envelope", "mostly SBSP",
+      " | ".join(f"SBSP {s['by_layer']['ENV_SBSP']:.2f} of {s['pct']:.2f}%" for s in slab), all(s["by_layer"]["ENV_SBSP"] > 0.5 * s["pct"] for s in slab))
+r800 = [v[c]["sweep"]["800"]["by_layer"]["REH"] for c in (r6i, r12i)]
+claim("3.2", "800-ft corridor (+/-400 ft) at the 4,000-ft axis: almost no REH overlap", "< 0.01%", f"{r800[0]:.3f}% / {r800[1]:.3f}%", max(r800) < 0.01)
+rows.append(("3.2", "(not in text) refined corridors, partly at 3,000 ft inside the REH band, at 800 ft", "-",
+             " / ".join(f"{v[c]['sweep']['800']['by_layer']['REH']:.2f}%" for c in (r6r, r12r)), "INFO"))
 
 sg = pd.read_csv(REV + "segments_volume_6vp_refined.csv")
 s = sg[sg.share_ENV_SBSP >= 0.10].copy()
@@ -262,4 +277,4 @@ pd.set_option("display.width", 250, "display.max_colwidth", 140)
 out = pd.DataFrame(rows, columns=["section", "claim", "paper", "computed", "status"])
 out.to_csv(REV + "verify_paper.csv", index=False)
 print(out.to_string(index=False))
-print("\nCHECK items:", (out.status == "CHECK").sum())
+print("\nCHECK items:", (out.status == "CHECK").sum(), "| OK:", (out.status == "OK").sum(), "| INFO/SKIP:", out.status.isin(["INFO", "SKIP"]).sum())
