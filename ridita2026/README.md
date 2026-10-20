@@ -10,7 +10,7 @@ Scripts used for the paper *A Methodological Procedure and Supporting Dashboard 
 | Airport-flow envelopes, radial method (`data/approach_surfaces_*.csv`) and along-axis method (`data/approach_surfaces_*_axis_traffic_align30.csv`) | Public derived data, in this repository |
 | Frozen UAM scenario files (below) | **Not in this repository.** Available on request from the authors |
 | Flightradar24 tracks, December 2022 (31 daily `.Rda` files) | **Licensed; not distributed.** Needed only to rebuild the envelopes and for the traffic counts |
-| SIGMA-Sky Product II report (demand scenarios) | Restricted |
+| SIGMA-Sky Product II report (demand scenarios) | Public, at https://sigma.ita.br/sky/produtos |
 
 Without the scenario files, no corridor result of the paper can be recomputed from this repository alone. The tests in `../tests/` check the code on public and synthetic data.
 
