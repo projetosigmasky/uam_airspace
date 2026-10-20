@@ -1943,6 +1943,9 @@
             animate();
         }
 
+        // CARTO basemap key (https://carto.com/basemaps), used by the gray 2D map
+        const CARTO_API_KEY = 'cb1_4qeg_1_378c20ca618436a5bc54e532';
+
         // Initialize Leaflet map for 2D view
         function initMap() {
             if (map2D) return;
@@ -1956,8 +1959,10 @@
                 maxNativeZoom: 18
             }).addTo(map2D);
             
-            // Gray tile layer
-            map2D.grayTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+            // Gray tile layer. CARTO basemaps need an API key (without one they serve
+            // "API key required" tiles); the key is sent with every tile request, so it is
+            // public by design and should be restricted to this site in the CARTO account.
+            map2D.grayTileLayer = L.tileLayer('https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=' + CARTO_API_KEY, {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>',
                 maxZoom: 19,
                 maxNativeZoom: 18
