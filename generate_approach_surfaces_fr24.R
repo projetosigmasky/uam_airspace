@@ -39,13 +39,15 @@
 #      samples up to 10 NM along the axis at any cross-axis offset). Stations are always placed
 #      on the extended runway axis at that distance, so radial stationing assigns a sample flown
 #      off the axis to a station farther out than its along-axis position.
-#   4. At each station: 5th (P5) and 95th (P95) altitude percentiles and of the signed
-#      cross-axis offset, and the P95 of the absolute offset, each smoothed with a cubic spline
-#      (spar = 0.5).
+#   4. At each station: 5th (P5) and 95th (P95) altitude percentiles, smoothed with a cubic
+#      spline (spar = 0.5), and lateral percentiles: the P95 of the absolute cross-axis offset
+#      (--lateral=centreline), or the P5 and P95 of the signed offset (--lateral=traffic), whose
+#      band centre and width are smoothed with the same spline, the width on a log scale, so that
+#      the smoothed band stays ordered and positive (see smooth_traffic_lateral).
 #   5. Each cross-section is bounded vertically by the smoothed P5 and P95 altitudes. Laterally
 #      it is centred on the extended runway axis and 2 x the absolute-offset P95 wide
-#      (--lateral=centreline, published), or centred on the observed traffic and spanning the
-#      P5-P95 of the signed offset (--lateral=traffic).
+#      (--lateral=centreline, published), or centred on the observed traffic and spanning its
+#      smoothed P5-P95 band (--lateral=traffic).
 #
 # Outputs in <out_dir> (default: data/ next to this script):
 #   approach_surfaces_<ICAO>.csv     dashboard route files (route, id, name, lat, lon, type,
@@ -106,6 +108,29 @@ dest_point <- function(lat, lon, bearing_deg, dist_nm) {
 smooth_col <- function(x, y) {
   if (length(x) < 4) return(y)
   predict(smooth.spline(x, y, spar = SMOOTHING_SPL), x)$y
+}
+
+# Traffic-centred lateral band (--lateral=traffic). The centre and the width of the signed
+# P5-P95 band are smoothed separately, the width on a log scale, so the smoothed band is ordered
+# and positive (smoothing the two percentiles independently let them cross where the band changes
+# abruptly, e.g. where a second traffic stream enters the sample, and a minimum width then hid
+# it). The spline spreads such a step over about +/-1 NM and overshoots it, so each smoothed edge
+# is kept within the outermost raw edges within LOCAL_RANGE_NM of its station, and the band is
+# widened where needed to contain the station's own raw P5-P95 band. The result is never narrower
+# than the observed band and never wider than the observed extremes nearby. Raw widths below
+# MIN_WIDTH_NM (a numerical guard; none in the December 2022 data) are raised to it and counted.
+MIN_WIDTH_NM <- 0.001
+LOCAL_RANGE_NM <- 1.0
+smooth_traffic_lateral <- function(x, c5, c95) {
+  stopifnot(length(x) == length(c5), length(x) == length(c95), all(is.finite(c5)), all(is.finite(c95)), all(c95 >= c5))
+  floored <- sum(c95 - c5 < MIN_WIDTH_NM)
+  mid <- (c5 + c95) / 2
+  lo_raw <- pmin(c5, mid - MIN_WIDTH_NM / 2); hi_raw <- pmax(c95, mid + MIN_WIDTH_NM / 2)
+  centre <- smooth_col(x, mid); half <- exp(smooth_col(x, log(hi_raw - lo_raw))) / 2
+  near <- lapply(x, function(xi) which(abs(x - xi) <= LOCAL_RANGE_NM + 1e-9))
+  lo <- pmin(lo_raw, pmax(centre - half, sapply(near, function(k) min(lo_raw[k]))))
+  hi <- pmax(hi_raw, pmin(centre + half, sapply(near, function(k) max(hi_raw[k]))))
+  list(centre = (lo + hi) / 2, width = hi - lo, floored = floored)
 }
 
 # ------------------------------------------------------------------------------------------
@@ -181,13 +206,18 @@ for (icao in names(airports)) {
              p5_s = smooth_col(distance_nm, p5_m),
              p95_s = smooth_col(distance_nm, p95_m),
              lat_s = pmax(0.001, smooth_col(distance_nm, lat_p95_nm)),
-             lo_m = pmin(p5_s, p95_s), hi_m = pmax(p5_s, p95_s),
-             c5_s = smooth_col(distance_nm, c_p5_nm), c95_s = smooth_col(distance_nm, c_p95_nm),
-             centre_nm = if (LATERAL == "traffic") (c5_s + c95_s) / 2 else 0,
-             width_nm = if (LATERAL == "traffic") pmax(0.001, c95_s - c5_s) else 2 * lat_s)
+             lo_m = pmin(p5_s, p95_s), hi_m = pmax(p5_s, p95_s))
     if (nrow(bands) == 0) {
       cat(sprintf("  %s %s: no station with %d flights; side skipped\n", icao, side, MIN_POINTS))
       next
+    }
+    if (LATERAL == "traffic") {
+      lateral <- smooth_traffic_lateral(bands$distance_nm, bands$c_p5_nm, bands$c_p95_nm)
+      bands <- bands %>% mutate(centre_nm = lateral$centre, width_nm = lateral$width)
+      if (lateral$floored > 0)
+        cat(sprintf("  %s %s: %d stations with a raw lateral band below %.3f NM\n", icao, side, lateral$floored, MIN_WIDTH_NM))
+    } else {
+      bands <- bands %>% mutate(centre_nm = 0, width_nm = 2 * lat_s)
     }
     ll <- t(sapply(bands$distance_nm, function(d) dest_point(a$lat, a$lon, bearing, d)))
     if (LATERAL == "traffic") {
