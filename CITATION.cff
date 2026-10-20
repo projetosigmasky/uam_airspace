@@ -9,7 +9,7 @@ authors:
     given-names: Lucas Orbolato
     affiliation: Instituto Tecnológico de Aeronáutica (ITA)
   - name: SIGMA-Sky Project
-version: ridita-2026
+version: ridita-2026.1
 date-released: "2026-10-20"
 repository-code: "https://github.com/projetosigmasky/uam_airspace"
 url: "https://projetosigmasky.github.io/uam_airspace/"

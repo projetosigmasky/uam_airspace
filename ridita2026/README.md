@@ -7,7 +7,7 @@ Scripts used for the paper *A Methodological Procedure and Supporting Dashboard 
 | Input | Status |
 |---|---|
 | REH and REA volumes (`data/nodes_edges_reh.csv`, `data/nodes_edges_rea.csv`), from DECEA GeoAISWEB XML (`data/xml/`) | Public, in this repository |
-| Airport-flow envelopes, radial method (`data/approach_surfaces_*.csv`) and along-axis method (`data/approach_surfaces_*_axis_traffic_align30.csv`) | Public derived data, in this repository |
+| Airport-flow envelopes, radial method (`data/approach_surfaces_*.csv`) and stream method (`data/approach_surfaces_*_stream.csv`); the along-axis method (`data/approach_surfaces_*_axis_traffic_align30.csv`) was the alternative in release `ridita-2026` | Public derived data, in this repository |
 | Frozen UAM scenario files (below) | **Not in this repository.** Available on request from the authors |
 | Flightradar24 tracks, December 2022 (31 daily `.Rda` files) | **Licensed; not distributed.** Needed only to rebuild the envelopes and for the traffic counts |
 | SIGMA-Sky Product II report (demand scenarios) | Public, at https://sigma.ita.br/sky/produtos |
@@ -34,7 +34,7 @@ The corridor lanes were generated with a dashboard version older than this repos
 
 - Volumes as the dashboard draws them: one box per segment with the start waypoint's width and height, centred on the segment, altitude interpolated along it; zero width/height/altitude take 457 m / 305 m / 760 m.
 - Subject layer: the scenario's cruise segments; segments touching a `Vertiport` or `Airport` (climb and descent) are reported apart and excluded from the paper's shares.
-- Other layers, in this order: `REH`, `REA`, `ENV_SBGR`, `ENV_SBSP` (radial envelopes unless stated).
+- Other layers, in this order: `REH`, `REA`, `ENV_SBGR`, `ENV_SBSP` (radial envelopes unless stated; the stream envelopes for the sensitivity, with `stream_attribution.py` splitting the SBSP share by stream).
 - 50-m cells; per cell, altitude intervals are merged per layer; parallel part = overlap inside segment–obstacle pairs within 30°, intersected pair by pair.
 - Height sweep 1,000 / 800 / 600 / 400 / 200 ft and a 1-m slab at the axis altitude (a footprint share, not a centreline length).
 - Centreline exposure: centreline sampled every 10 m against the same boxes (`centreline_exposure.py`).
@@ -48,8 +48,8 @@ pip install numpy pandas shapely
 RIDITA_INPUTS=/path/to/scenario/folder python ridita2026/reproduce.py
 ```
 
-Optional, with the licensed tracks: `Rscript ridita2026/scripts/extract_tracks.R <folder with the daily .Rda files> tracks.csv.gz`, then set `RIDITA_TRACKS=tracks.csv.gz` before `reproduce.py`. Results go to `ridita2026/results/` (or `RIDITA_RESULTS`); `verify_paper.txt` lists every quantitative claim of the paper with `OK`, `CHECK` or `SKIP` (traffic counts without the tracks). `scripts/thin_envelope_convergence.py` repeats the along-axis SBSP overlap at 50, 25, 10 and 5-m cells.
+Optional, with the licensed tracks: `Rscript ridita2026/scripts/extract_tracks.R <folder with the daily .Rda files> tracks.csv.gz`, then set `RIDITA_TRACKS=tracks.csv.gz` before `reproduce.py`. Results go to `ridita2026/results/` (or `RIDITA_RESULTS`); `verify_paper.txt` lists every quantitative claim of the paper with `OK`, `CHECK` or `SKIP` (traffic counts without the tracks). `scripts/thin_envelope_convergence.py` repeats the stream SBSP overlap at 50, 25, 10 and 5-m cells (`ENV_SBSP_CSV` selects another envelope).
 
 ## Expected results
 
-`expected_results.csv` is `verify_paper.csv` from a full run (with the licensed tracks): each quantitative claim of the manuscript, the recomputed value and the status: `OK` for all 48 checked claims, plus two `INFO` lines that are not claims of the paper. The manuscript was amended on 20 October 2026 after the final checks: the along-axis SBSP share for twelve vertiports is 1.2% (1.21%) after the along-axis lateral band was corrected, and the traffic counts are 176 and 262 movements a day (130 on the busiest segment) counting only flights that pass through during December. `scripts/thin_envelope_convergence.py` confirms the along-axis overlap at finer cells: 0.0105% (six vertiports) and 1.221% (twelve) at 5 m in both raster orientations.
+`expected_results.csv` is `verify_paper.csv` from a full run (with the licensed tracks): each quantitative claim of the manuscript, the recomputed value and the status: `OK` for all 49 checked claims, plus two `INFO` lines that are not claims of the paper. The manuscript was amended on 20 October 2026 after the final checks: the traffic counts are 176 and 262 movements a day (130 on the busiest segment) counting only flights that pass through during December; and, for release `ridita-2026.1`, its alternative envelope is the stream (direction-resolved) one instead of the along-axis one, which mixes the traffic streams that share a side of the airport. With the stream envelopes the SBSP share is 2.1 → 2.0% (six vertiports) and 2.5 → 2.5% (twelve), almost all in departure streams (arrival streams: 0.02%). `scripts/thin_envelope_convergence.py` confirms it at finer cells: 2.002% (six vertiports) and 2.497% (twelve) at 5 m in both raster orientations. (For the along-axis envelope, the alternative of release `ridita-2026`, the same check gave 0.0105% and 1.221%.)

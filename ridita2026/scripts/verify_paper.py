@@ -126,7 +126,7 @@ cross15 = [{n for d, ns in e["by_d"].items() if abs(d - 1500) <= 20 or abs(d - 2
 n05 = sum(len(ns) for e in (e6, e12) for d, ns in e["by_d"].items() if abs(d - allowed[2]) <= 20)
 max_nm = max(max(e["by_d"]) for e in (e6, e12)) / NM
 claim("2.2/T1", "shifts: 1.0/1.5 km cross-track; 2.0 km along-route at 1-2 points (two turning points), once with 0.5 km; 1.5 km at 2-3 points; resultant <= 1.35 NM",
-      "1-2 / 2 / 1 / 2-3 / 1.35", f"6vp {list(e6['dist'])}, 12vp {list(e12['dist'])} m; along-route {[len(a) for a in along]} ({len(along[0] | along[1])} turning points); "
+      "1-2 / 2 / 1 / 2-3 / 1.35", f"6vp {[float(x) for x in e6['dist']]}, 12vp {[float(x) for x in e12['dist']]} m; along-route {[len(a) for a in along]} ({len(along[0] | along[1])} turning points); "
       f"0.5-km once: {n05}; 1.5 km {[len(c) for c in cross15]}; max {max_nm:.3f} NM",
       all(min(abs(d - x) for x in allowed) <= 20 for e in (e6, e12) for d in e["by_d"]) and [len(a) for a in along] == [1, 2]
       and len(along[0] | along[1]) == 2 and n05 == 1 and all(2 <= len(c) <= 3 for c in cross15) and max_nm <= 1.35 + 5e-4)
@@ -153,7 +153,7 @@ claim("T1", "generated spacing 0.27 NM / width 0.52 NM (perpendicular, straight 
       f"{np.median(perp) / NM:.3f} / {(np.median(perp) + 457) / NM:.3f} (waypoint-to-waypoint median {np.median(sep) / NM:.3f})",
       round(np.median(perp) / NM, 2) == 0.27 and round((np.median(perp) + 457) / NM, 2) == 0.52)
 claim("T1", "offsets widened by 11% (nominal +/-750 ft)", "11%", f"{np.median(perp) / 2 / 228.6:.4f} x nominal (median)", round(np.median(perp) / 2 / 228.6, 2) == 1.11)
-claim("T1", "stored corridor height and width", "1,000 ft; 457 m lanes", f"heights {sorted(d.height.unique())} m, widths {sorted(d.width.unique())} m",
+claim("T1", "stored corridor height and width", "1,000 ft; 457 m lanes", f"heights {sorted(int(x) for x in d.height.unique())} m, widths {sorted(int(x) for x in d.width.unique())} m",
       sorted(d.height.unique()) == [305] and sorted(d.width.unique()) == [457])
 
 
@@ -168,7 +168,7 @@ rea = pd.read_csv(REPO + "nodes_edges_rea.csv").groupby("route", sort=False).agg
 xr, xa = xml_rows(REPO + "xml/CV_REH_XP_SAO_PAULO.xml"), xml_rows(REPO + "xml/CV_REA_XP1_SAO_PAULO.xml")
 claim("2.1", "106 REH / 119 REA", "106 / 119", f"{len(reh)} / {len(rea)} (XML {len(xr)} / {len(xa)})", (len(reh), len(rea)) == (106, 119))
 claim("2.1", "REH widths 0.27/0.11 NM; REA 1-3 NM", "0.27, 0.11 / 1-3",
-      f"REH {sorted(np.round(reh.w.unique() / NM, 2))}; REA {sorted(np.round(rea.w.unique() / NM, 2))}",
+      f"REH {sorted(float(x) for x in np.round(reh.w.unique() / NM, 2))}; REA {sorted(float(x) for x in np.round(rea.w.unique() / NM, 2))}",
       sorted(np.round(reh.w.unique() / NM, 2)) == [0.11, 0.27] and sorted(np.round(rea.w.unique() / NM, 2)) == [1.0, 2.0, 3.0])
 mh_reh, mh_rea = reh.h.mode()[0], rea.h.mode()[0]
 claim("2.1", "mean thickness 187 ft for 67 REH; 1,161 ft for 19 REA", "187/67; 1161/19",
@@ -242,7 +242,7 @@ s["b"] = (np.degrees(np.arctan2((s.lon - lo) * np.cos(np.radians(la)), (s.lat - 
 claim("3.1", "SBSP segments 2.9-6.9 NM north-west", "2.9-6.9 NM, NW", f"{s.r.min():.1f}-{s.r.max():.1f} NM, bearings {s.b.min():.0f}-{s.b.max():.0f} deg",
       round(s.r.min(), 1) == 2.9 and round(s.r.max(), 1) == 6.9 and s.b.min() > 270)
 
-# ---------------------------------------------------------------- centreline, along-axis variant, traffic counts
+# ---------------------------------------------------------------- centreline, stream variant, traffic counts
 ce = json.load(open(REV + "centreline_exposure.json", encoding="utf-8"))
 cc = (ce["6vp"]["lanes_initial"]["ENV_SBSP"], ce["6vp"]["lanes_refined"]["ENV_SBSP"], ce["6vp"]["base_REH"]["ENV_SBSP"],
       ce["12vp"]["lanes_initial"]["ENV_SBSP"], ce["12vp"]["lanes_refined"]["ENV_SBSP"], ce["12vp"]["base_REH"]["ENV_SBSP"])
@@ -250,15 +250,21 @@ claim("T2/3.2/abs", "centreline in SBSP: 11.7->11.3 (2.8) | 16.1->15.5 (1.9)", "
       str(tuple(round(x, 2) for x in cc)), tuple(round(x, 1) for x in cc) == (11.7, 11.3, 2.8, 16.1, 15.5, 1.9))
 claim("2.4", "REH reference: 99% of path within REH", "99%", f"{ce['6vp']['base_REH']['within_250m_of_REH_axis_pct']:.2f} / {ce['12vp']['base_REH']['within_250m_of_REH_axis_pct']:.2f}",
       min(ce['6vp']['base_REH']['within_250m_of_REH_axis_pct'], ce['12vp']['base_REH']['within_250m_of_REH_axis_pct']) >= 99)
-va = json.load(open(REV + "along_axis/overlap_volume_along_axis.json", encoding="utf-8"))
-aa = tuple(va[c]["rows"]["ENV_SBSP"]["pct_of_volume"] for c in (r6r, r12r))
-claim("3.2", "along-axis SBSP share: under 0.1% | 1.2%", "<0.1 / 1.2", str(tuple(round(x, 3) for x in aa)), aa[0] < 0.1 and round(aa[1], 1) == 1.2)
-sa = pd.read_csv(REPO + "approach_surfaces_stations_axis_traffic_align30.csv")
-mm = st.merge(sa, on=["icao", "side", "station"], suffixes=("_r", "_a"))
-dlo = ((mm.lower_limit_m_a - mm.lower_limit_m_r).abs() / FT)[mm.distance_nm_r <= 7.0]
-claim("2.3", "along-axis lower limits within 30 ft up to 7 NM", "<= 30 ft", f"max {dlo.max():.0f} ft", dlo.max() <= 30)
-tube = sa[(sa.icao == "SBSP") & (sa.side == "SIDE_35") & sa.distance_nm.between(4.0, 4.8)].width_nm
-claim("3.2", "runway 17 final a tube 0.02 NM wide (along-axis, 4-4.8 NM)", "0.02", f"{tube.min():.3f}-{tube.max():.3f}", round(tube.max(), 2) <= 0.02)
+vs = json.load(open(REV + "stream/overlap_volume_stream.json", encoding="utf-8"))
+ss = tuple(vs[c]["rows"]["ENV_SBSP"]["pct_of_volume"] for c in (r6i, r6r, r12i, r12r))
+claim("abs/3.2/T2", "stream SBSP share: 2.1 -> 2.0% | 2.5 -> 2.5%", "2.1 / 2.0 / 2.5 / 2.5", str(tuple(round(x, 3) for x in ss)),
+      tuple(round(x, 1) for x in ss) == (2.1, 2.0, 2.5, 2.5))
+sm = pd.read_csv(REPO + "approach_surfaces_summary_stream.csv")
+claim("2.3", "16 streams", "16", f"{len(sm)} (SBGR {(sm.icao == 'SBGR').sum()}, SBSP {(sm.icao == 'SBSP').sum()}), {sm.flights.sum()} flights",
+      len(sm) == 16)
+at = json.load(open(REV + "stream/stream_attribution.json", encoding="utf-8"))[r6r]
+arr = sum(x for k, x in at.items() if k.startswith("ARR"))
+claim("3.2", "six-vertiport stream share almost all in departure streams", "almost all",
+      f"arrival streams {arr:.3f}% of {at['ENV_SBSP']:.3f}%", arr < 0.05 * at["ENV_SBSP"])
+fin = pd.read_csv(REPO + "approach_surfaces_stations_stream.csv").query("icao == 'SBSP' and stream == 'ARR17_S1'")
+tube = fin[np.hypot((fin.lon - lo) * np.cos(np.radians(la)) * 60, (fin.lat - la) * 60).between(4.0, 5.0)].width_nm
+claim("3.2", "runway 17 final a tube 0.02 NM wide (stream ARR17_S1, 4-5 NM from the ARP)", "0.02", f"{tube.min():.3f}-{tube.max():.3f}",
+      len(tube) > 0 and round(tube.max(), 2) <= 0.02)
 import os
 if not os.path.exists(REV + "occupancy/occupancy_summary.csv"):
     rows.append(("T2/abs/3.2", "Flightradar24 flights through the volumes (176, 0.3, 262, 44, 1.0, 130)", "-",
@@ -266,7 +272,7 @@ if not os.path.exists(REV + "occupancy/occupancy_summary.csv"):
 else:
     oc = pd.read_csv(REV + "occupancy/occupancy_summary.csv").set_index("volume").SBSP_per_day
     claim("T2/abs", "SBSP movements/day (December): 176 -> 176 (0.3) | 262 -> 262 (0.3)", "(176, 176, 0.3, 262, 262, 0.3)",
-          str((oc["6vp_initial"], oc["6vp_refined"], oc["REH_ref_6vp"], oc["12vp_initial"], oc["12vp_refined"], oc["REH_ref_12vp"])),
+          str(tuple(float(oc[k]) for k in ("6vp_initial", "6vp_refined", "REH_ref_6vp", "12vp_initial", "12vp_refined", "REH_ref_12vp"))),
           (round(oc["6vp_initial"]), round(oc["6vp_refined"]), round(oc["REH_ref_6vp"], 1), round(oc["12vp_initial"]), round(oc["12vp_refined"]), round(oc["REH_ref_12vp"], 1)) == (176, 176, 0.3, 262, 262, 0.3))
     claim("3.2", "one lane's box: 44/day at 4,000 ft, 1.0 at REH altitudes (6vp)", "44 / 1.0", f"{oc['base_4000ft_lane_6vp']} / {oc['base_REHalt_lane_6vp']}",
           round(oc["base_4000ft_lane_6vp"]) == 44 and round(oc["base_REHalt_lane_6vp"], 1) == 1.0)

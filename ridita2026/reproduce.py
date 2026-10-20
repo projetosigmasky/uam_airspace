@@ -6,11 +6,12 @@
 
 Steps (outputs in RIDITA_RESULTS, default ridita2026/results/):
   1. overlap_volume.py          volumetric overlap, height sweep, per-segment shares (Table 2, 3.1, 3.2)
-  2. overlap_volume.py          the same against the along-axis envelopes (3.2 sensitivity)
-  3. centreline_exposure.py     centreline length inside the envelopes (Table 2, 3.2, abstract)
-  4. shared_reh_check.py        REH reference and REH/REA inside the envelopes (2.4, 3.2)
-  5. occupancy.py               Flightradar24 flights through each volume (needs RIDITA_TRACKS; licensed)
-  6. verify_paper.py            every quantitative claim of the paper: OK or CHECK
+  2. overlap_volume.py          the same against the stream envelopes (abstract, Table 2, 3.2 sensitivity)
+  3. stream_attribution.py      the SBSP stream share by stream (3.2)
+  4. centreline_exposure.py     centreline length inside the envelopes (Table 2, 3.2, abstract)
+  5. shared_reh_check.py        REH reference and REH/REA inside the envelopes (2.4, 3.2)
+  6. occupancy.py               Flightradar24 flights through each volume (needs RIDITA_TRACKS; licensed)
+  7. verify_paper.py            every quantitative claim of the paper: OK or CHECK
 """
 import os
 import subprocess
@@ -39,9 +40,10 @@ def run(script, *args, results=RESULTS, stdout=None, extra_env=None):
 if not (INPUTS / "scenarios").is_dir() or not (INPUTS / "new_scenario").is_dir():
     sys.exit(f"Scenario files not found in {INPUTS}: set RIDITA_INPUTS (see ridita2026/README.md).")
 run("overlap_volume.py", "--json", stdout=RESULTS / "overlap_volume.json")
-run("overlap_volume.py", "--json", results=RESULTS / "along_axis", stdout=RESULTS / "along_axis" / "overlap_volume_along_axis.json",
-    extra_env={"ENV_SBGR_CSV": str(DATA / "approach_surfaces_SBGR_axis_traffic_align30.csv"),
-               "ENV_SBSP_CSV": str(DATA / "approach_surfaces_SBSP_axis_traffic_align30.csv")})
+run("overlap_volume.py", "--json", results=RESULTS / "stream", stdout=RESULTS / "stream" / "overlap_volume_stream.json",
+    extra_env={"ENV_SBGR_CSV": str(DATA / "approach_surfaces_SBGR_stream.csv"),
+               "ENV_SBSP_CSV": str(DATA / "approach_surfaces_SBSP_stream.csv")})
+run("stream_attribution.py", results=RESULTS / "stream")
 run("centreline_exposure.py")
 run("shared_reh_check.py", stdout=RESULTS / "shared_reh_check.txt")
 if TRACKS.exists():
