@@ -1,0 +1,6 @@
+route,id,name,lat,lon,type,altitude,height,width
+R1,1,VP-A,-23.60,-46.70,Vertiport,760,305,457
+R1,2,N1,-23.585,-46.665,Node,914,305,457
+R1,3,VP-B,-23.56,-46.62,Vertiport,760,305,457
+R2,1,VP-B,-23.56,-46.62,Vertiport,760,305,457
+R2,2,VP-C,-23.52,-46.60,Vertiport,760,305,457
