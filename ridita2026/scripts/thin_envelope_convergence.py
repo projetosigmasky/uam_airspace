@@ -1,18 +1,19 @@
-"""Grid convergence of the overlap with the along-axis SBSP envelope (Section 3.2 sensitivity).
+"""Grid convergence of the overlap with the stream SBSP envelope (Section 3.2 sensitivity).
 
-Near the Congonhas runway 17 final the along-axis envelope is only about 0.01-0.03 NM (20-55 m)
-wide, close to or below the 50-m raster, so its overlap with the corridors could be aliased. The
-overlap volume between the refined corridors (cruise segments) and that envelope is recomputed at
-50, 25, 10 and 5-m cells in two independent ways, which must converge to the same volume:
+On the Congonhas straight-in finals the stream envelope is only about 0.01-0.02 NM (20-35 m) wide,
+below the 50-m raster, so its overlap with the corridors could be aliased. The overlap volume
+between the refined corridors (cruise segments) and that envelope is recomputed at 50, 25, 10 and
+5-m cells in two independent ways, which must converge to the same volume:
   A  corridors rasterised (as in the paper), restricted to the corridor segments whose footprint
      touches an envelope footprint (the overlap comes only from those);
   B  envelope rasterised, with those corridor cruise segments as the obstacle layer.
 Shares are relative to the corridor cruise volume at 50 m (Table 2).
 Usage: python thin_envelope_convergence.py [cell sizes...]   (default 50 25 10 5)
+ENV_SBSP_CSV overrides the envelope (default data/approach_surfaces_SBSP_stream.csv; the along-axis
+envelope, data/approach_surfaces_SBSP_axis_traffic_align30.csv, was checked the same way).
 Writes thin_envelope_convergence.csv in RIDITA_RESULTS.
 """
 import importlib.util
-import json
 import math
 import os
 import sys
@@ -31,7 +32,7 @@ CELLS = [float(c) for c in sys.argv[1:]] or [50.0, 25.0, 10.0, 5.0]
 TERMINALS = {"Vertiport", "Airport"}
 CASES = {"6vp_refined": "scenarios/scenario_horizontal_3000ft_expanded_displaced.csv",
          "12vp_refined": "new_scenario/new_scenario_horizontal_3000ft_displaced.csv"}
-ENV = DATA / "approach_surfaces_SBSP_axis_traffic_align30.csv"
+ENV = Path(os.environ.get("ENV_SBSP_CSV", DATA / "approach_surfaces_SBSP_stream.csv"))
 LAT0 = -23.6261
 M_LAT = 111132.92 - 559.82 * math.cos(2 * math.radians(LAT0)) + 1.175 * math.cos(4 * math.radians(LAT0))
 M_LON = 111412.84 * math.cos(math.radians(LAT0)) - 93.5 * math.cos(3 * math.radians(LAT0))
@@ -70,7 +71,6 @@ def pieces(df, cruise_only):
 env = pd.read_csv(ENV)
 env_rows, env_polys = pieces(env, cruise_only=False)
 tree = STRtree(env_polys)
-v50 = json.load(open(RESULTS / "overlap_volume.json", encoding="utf-8")) if (RESULTS / "overlap_volume.json").exists() else {}
 out = []
 for case, f in CASES.items():
     uam = pd.read_csv(INPUTS / f)
@@ -79,8 +79,9 @@ for case, f in CASES.items():
     # keep the corridor pieces whose footprint touches the envelope (polygons are in piece order)
     order = list(dict.fromkeys(seg_rows.route))
     near = seg_rows[seg_rows.route.isin([order[i] for i in sorted(hit)])]
-    vol50 = v50.get(case, {}).get("volume_km3", float("nan"))
-    print(f"\n{case}: {len(order)} corridor cruise pieces, {len(hit)} touch the along-axis SBSP envelope; corridor cruise volume at 50 m {vol50:.2f} km3")
+    ov50 = load(50.0)
+    vol50 = ov50.evaluate(ov50.run_case(uam, {}), [])["volume_km3"]
+    print(f"\n{case}: {len(order)} corridor cruise pieces, {len(hit)} touch the SBSP envelope ({ENV.name}); corridor cruise volume at 50 m {vol50:.2f} km3")
     for cell in CELLS:
         ov = load(cell)
         t0 = time.time()
