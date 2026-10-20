@@ -229,14 +229,17 @@ def main():
     server = QuietServer(("127.0.0.1", http_port), partial(QuietHandler, directory=str(ROOT)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     profile = tempfile.mkdtemp(prefix="uam-dashboard-tests-")
-    browser = subprocess.Popen([find_browser(), "--headless=new", f"--remote-debugging-port={cdp_port}",
-                                f"--user-data-dir={profile}", "--no-first-run", "--disable-gpu", "about:blank"],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    flags = ["--headless=new", f"--remote-debugging-port={cdp_port}", f"--user-data-dir={profile}",
+             "--no-first-run", "--disable-gpu"]
+    if os.environ.get("CI"):
+        flags.append("--no-sandbox")   # CI containers often lack the user namespaces Chrome's sandbox needs
+    browser = subprocess.Popen([find_browser(), *flags, "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         t0 = time.time()
         while True:
             try:
-                urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/version", timeout=1)
+                version = json.load(urllib.request.urlopen(f"http://127.0.0.1:{cdp_port}/json/version", timeout=1))
+                print(f"Browser: {version.get('Browser')}; Python {sys.version.split()[0]}")
                 break
             except Exception:
                 if time.time() - t0 > 30:
