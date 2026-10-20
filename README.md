@@ -27,7 +27,9 @@ A web-based interactive dashboard for designing and visualizing Urban Air Mobili
 - Measures how much of one route layer's volume (e.g. UAM corridors) lies inside other layers (e.g. REH, REA, airport-flow envelopes)
 - Volumetric: the plan is divided into square cells (default 50 m) and, in each cell, the altitude ranges of each layer are merged, so lanes and routes that share a waypoint segment are counted once
 - Per layer: overlap volume, share of the corridor volume, share of the overlap that runs parallel (within 30° by default) rather than crossing, and the number of segments with at least 1%, 10% and 50% of their own volume overlapping
-- Corridor-height sweep (1,000 ft down to the axis alone), largest overlaps by segment, map markers for segments above a chosen share, and CSV export per segment
+- Parallel and crossing are exclusive classes that add up to the overlap: in each cell, the part of the overlap lying inside at least one segment–obstacle pair within 30° of each other is parallel, the rest is crossing
+- Corridor-height sweep (1,000 ft down to a 1-m slab at the axis altitude), largest overlaps by segment, map markers for segments above a chosen share, and CSV export per segment. The 1-m slab spans the full corridor width, so it gives the share of the corridor *footprint* at the axis altitude that lies inside other volumes, not the length of the centreline inside them
+- The 50-m cells are counted whole when their centre lies in a footprint, so a single segment's volume can be off by up to one row of cells (for example +9% for an east–west 457-m corridor); over a network the errors average out (for the RIDITA 2026 scenarios, every overlap share changed by at most 0.1 percentage point between 25-m and 100-m cells)
 
 ## Usage
 
@@ -35,7 +37,8 @@ A web-based interactive dashboard for designing and visualizing Urban Air Mobili
 2. **Visualize**: The dashboard automatically renders your corridors in 3D
 3. **Explore**: Use the map and 3D viewport to analyze different aspects of your network
 4. **Manage Routes**: Add, remove, or modify routes in the routes panel
-5. **Check Overlaps**: Load the corridors and the airspace structures as separate files, then open *Batch Operations → Overlap Analysis*. Volumes are the boxes drawn in the 3D view (start-waypoint width and height, centred on the segment, altitude interpolated along it). A segment is the pair of waypoints it joins, with all lanes and routes on it; segments touching a vertiport or airport are approach segments and are reported apart. The share of a segment's volume that overlaps separates thin crossings from corridors running inside another volume.
+5. **Generate Parallel Routes**: *Batch Operations → Parallel Routes* offsets every route sideways by the given distances in metres (positive: to the left of the direction of travel) and/or vertically. End waypoints stay fixed; each interior waypoint moves to the intersection of its two offset edges (or perpendicular to them where they are collinear) and keeps its name, type, altitude, width and height. A two-waypoint route gets one extra point, `<end name> offset`, before its fixed end.
+6. **Check Overlaps**: Load the corridors and the airspace structures as separate files, then open *Batch Operations → Overlap Analysis*. Volumes are the boxes drawn in the 3D view (start-waypoint width and height, centred on the segment, altitude interpolated along it). A segment is the pair of waypoints it joins, with all lanes and routes on it; segments touching a vertiport or airport are approach segments and are reported apart. The share of a segment's volume that overlaps separates thin crossings from corridors running inside another volume.
 
 ## Data Format
 
@@ -45,7 +48,9 @@ Route files are CSV with one row per waypoint, in order along each route:
 route,id,name,lat,lon,type,altitude,height,width
 ```
 
-`altitude` (MSL), `height` and `width` are in metres; each segment is drawn as a box with the width and height of its start waypoint, centred on the segment. `type` values `Vertiport` and `Airport` also create terminal volumes. Each loaded file becomes a layer that can be recoloured, hidden and used in the overlap analysis.
+`altitude` (MSL), `height` and `width` are in metres; each segment is drawn as a box with the width and height of its start waypoint, centred on the segment. Missing or zero values take defaults (altitude 760 m at vertiports and airports, 1,219 m elsewhere; height 305 m; width 457 m). `type` values `Vertiport` and `Airport` also create terminal volumes. Fields are separated by commas and may be quoted; quotes inside a field are not supported.
+
+Each loaded file becomes a layer that can be recoloured, hidden and used in the overlap analysis. Route names only need to be unique within a file: two files may contain routes with the same name (an REH and an REA route, two versions of a scenario), and each stays in its own layer. Vertiports are shared by name across layers. *Export CSV* writes all routes to one file; if a route name is used in more than one layer, the layer name is appended to it, e.g. `R1 [scenario_b.csv]`, so that the routes do not merge when the file is loaded again.
 
 ## Repository Contents
 
@@ -58,6 +63,7 @@ route,id,name,lat,lon,type,altitude,height,width
 | `data/approach_surfaces_SBGR.csv`, `data/approach_surfaces_SBSP.csv` | Airport-flow envelopes for Guarulhos and Congonhas, ready to load in the dashboard |
 | `data/approach_surfaces_stations.csv`, `data/approach_surfaces_summary.csv` | Per-station statistics and per-side summary of the envelopes |
 | `data/xml/` | Source GeoAISWEB XML files |
+| `tests/` | Browser tests, fixtures and a synthetic track generator (see Tests) |
 
 ## Airport-Flow Envelopes (Flightradar24)
 
@@ -65,13 +71,36 @@ route,id,name,lat,lon,type,altitude,height,width
 
 ```
 Rscript generate_approach_surfaces_fr24.R <folder with daily .Rda files> [output folder, default data/]
+                                          [--stations=radial|axis] [--lateral=centreline|traffic] [--align=<deg>]
 ```
 
 - **Input**: one `.Rda` file per day with a data frame `df` of track samples (flight id, time, phase, position, barometric altitude in ft, heading, planned origin and destination); the expected columns are listed in the script header. Requires R with `dplyr`.
 - **Method**: final-approach, initial-climb and ground samples within 0.3° of each airport; runway direction from the touchdown or lift-off heading (parallel runways grouped); stations every 0.1 NM up to 10 NM on each side of the airport reference point, keeping each flight's nearest sample; smoothed 5th/95th altitude percentiles as lower/upper limits and twice the smoothed 95th percentile of the lateral deviation from the extended runway axis as width.
-- **Published output** (`data/`): December 2022, 20,328 SBGR and 13,064 SBSP flights; four sides × 101 stations. Each side is one route; altitude is the mid-point of the 5th–95th percentile band and height its thickness, because the dashboard centres volumes on the stored altitude.
+- **Published output** (`data/`): December 2022, 20,328 SBGR and 13,064 SBSP flights; four sides × 101 stations. Each side is one route; altitude is the mid-point of the 5th–95th percentile band and height its thickness, because the dashboard centres volumes on the stored altitude. Running the script without options reproduces these files byte for byte.
+- **Station distance and lateral extent**: in the published envelopes a sample's station is its *radial* distance from the airport reference point, all samples in the half-plane on that side are pooled, and each cross-section is centred on the extended runway axis. A sample flown off the axis therefore goes to a station farther out than its along-axis position, and turning, base and departure-turn traffic widens the cross-sections (up to 16–20 NM at 10 NM) while the lowest, near-axis traffic sets the floor across that whole width. Options for a sensitivity check (their outputs carry a suffix, so the published files are not overwritten): `--stations=axis` uses the distance along the runway axis, i.e. the approach direction; `--lateral=traffic` centres each cross-section on the observed traffic and spans its 5th–95th lateral percentiles; `--align=30` keeps only samples whose heading is within 30° of the flight's runway heading (final approach and initial climb). `--stations=axis --lateral=traffic --align=30` describes straight-in approach and climb paths only; the published fan and this variant bracket the airport flows.
 - **Data licence**: raw Flightradar24 records are licensed and are not distributed here; only the derived envelopes are.
 - The envelopes describe observed traffic, not protected procedure surfaces.
+
+## Tests
+
+`python tests/run_browser_tests.py` runs, in headless Chrome, Edge or Chromium (`pip install websocket-client`):
+
+- `tests/core_tests.html`: unit tests of the pure functions in `index.html` (overlap volume and union, shared segments counted once, altitude interpolation, parallel/crossing split, approach segments, the axis-altitude slab, and parallel-route offsets for straight, turning, collinear, repeated-waypoint and two-waypoint routes). The page can also be opened from a local web server (`python -m http.server`, then `/tests/core_tests.html`).
+- UI tests with `data/` and `tests/fixtures/`: loading files that reuse route names, export, names containing markup (shown as text), and batch parallel routes.
+
+`tests/make_synthetic_fr24.R` writes a synthetic one-day track file (straight-in finals at known lateral offsets after a downwind leg) for checking `generate_approach_surfaces_fr24.R` without licensed data: `Rscript tests/make_synthetic_fr24.R <folder>`, then run the envelope script on that folder.
+
+## Limitations
+
+- Volumes are boxes per segment with the start waypoint's width and height; turns are not joined, and cells are counted whole (see Overlap Analysis).
+- The airport-flow envelopes describe observed traffic in one month, not protected procedure surfaces, and depend on how stations and lateral extent are defined (see above).
+- The overlap results describe geometry only; they do not model traffic density, time or separation minima.
+
+## Changes Affecting Earlier Results
+
+- Parallel routes: before this version, offsets were applied in a plane of 10⁻⁵-degree units, so one entered metre became 1.108 m (offsets towards north or south) to 1.114 m (towards east or west), and waypoints were matched to their names, types and altitudes by position, which shifted them for two-waypoint routes and collinear edges. Scenario files made with the earlier version, such as those of the RIDITA 2026 paper (±750 ft entered, ±253 m generated), keep their stored geometry; the overlap analysis always uses the loaded files.
+- Overlap analysis: before this version, a cell's whole overlap was counted as parallel when any overlapping pair in it was parallel, which slightly overstated the parallel share (RIDITA 2026 refined networks: 69.4% instead of 68.2%, 53.4% instead of 52.7%). Overlap totals and segment counts are unchanged.
+- Loader: before this version, a route whose name already existed in another layer was skipped without notice.
 
 ## Technology Stack
 
