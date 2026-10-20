@@ -64,7 +64,9 @@ Each loaded file becomes a layer that can be recoloured, hidden and used in the 
 | `data/approach_surfaces_stations.csv`, `data/approach_surfaces_summary.csv` | Per-station statistics and per-side summary of the radial envelopes |
 | `data/approach_surfaces_*_axis_traffic_align30.csv` | The same four files for the along-axis (approach-direction) envelopes |
 | `data/xml/` | Source GeoAISWEB XML files |
-| `tests/` | Browser tests, fixtures and a synthetic track generator (see Tests) |
+| `tests/` | Browser tests, envelope-script tests, fixtures and a synthetic track generator (see Tests) |
+| `ridita2026/` | Scripts and instructions to recompute the RIDITA 2026 paper results (scenario files not included; see its README) |
+| `CITATION.cff` | How to cite this software |
 
 ## Airport-Flow Envelopes (Flightradar24)
 
@@ -80,8 +82,8 @@ Rscript generate_approach_surfaces_fr24.R <folder with daily .Rda files> [output
 - **Published output** (`data/`): December 2022, 20,328 SBGR and 13,064 SBSP flights; four sides × 101 stations. Each side is one route; altitude is the mid-point of the 5th–95th percentile band and height its thickness, because the dashboard centres volumes on the stored altitude. Running the script without options reproduces these files byte for byte.
 - **Two methods**, both provided in `data/`:
   - *Radial* (default, the published envelopes): a sample's station is its radial distance from the airport reference point, all samples in the half-plane on that side are pooled, and each cross-section is centred on the extended runway axis and twice the 95th percentile of the absolute lateral deviation wide. Turning, base and departure-turn traffic widens the cross-sections (up to 16–20 NM at 10 NM), while the lowest, near-axis traffic sets the floor across that whole width, so the envelope is a conservative fan.
-  - *Along-axis* (approach direction; `--stations=axis --lateral=traffic --align=30`, files with the suffix `_axis_traffic_align30`): a sample's station is its distance along the runway axis, only samples whose heading is within 30° of the flight's runway heading are kept (final approach and initial climb), and each cross-section is centred on the observed traffic and spans its 5th–95th lateral percentiles. On synthetic straight-in tracks it recovers the true profile exactly, while the radial method reads up to about 475 ft low at 3 NM when the tracks are 1–3 NM off the axis. It leaves out turning traffic, and for the December 2022 data it is a thin tube on the finals (about 0.02 NM wide at Congonhas).
-  - On the December 2022 data the two methods give nearly the same lower limits (within 30 ft up to 7 NM) but very different widths, so overlap *volume* shares differ widely. For the RIDITA 2026 corridors, 14.0% of the refined six-vertiport corridor volume lies in the radial SBSP envelope and less than 0.1% in the along-axis one, although 131 Congonhas arrivals a day fly through one of its segments: a thin, dense flow fills little volume. Volume shares should therefore be read with traffic counts.
+  - *Along-axis* (approach direction; `--stations=axis --lateral=traffic --align=30`, files with the suffix `_axis_traffic_align30`): a sample's station is its distance along the runway axis, only samples whose heading is within 30° of the flight's runway heading are kept (final approach and initial climb), and each cross-section is centred on the observed traffic and spans its 5th–95th lateral percentiles. The centre and the width of that band are smoothed separately, the width on a log scale, so the band stays ordered and positive; its edges are then kept within the outermost raw edges within 1 NM (the spline's span), so abrupt changes such as a second traffic stream entering the sample are not overshot, and the band is widened where needed to contain each station's raw 5th–95th percentile band. On synthetic straight-in tracks it recovers the true profile exactly, while the radial method reads up to about 475 ft low at 3 NM when the tracks are 1–3 NM off the axis. It leaves out turning traffic, and for the December 2022 data it is a thin tube on the straight finals (about 0.02 NM wide on the Congonhas runway 17 final 4–5 NM out).
+  - On the December 2022 data the two methods give nearly the same lower limits (within 30 ft up to 7 NM) but very different widths, so overlap *volume* shares differ widely. For the RIDITA 2026 corridors, 14.0% of the refined six-vertiport corridor volume lies in the radial SBSP envelope and less than 0.1% in the along-axis one, although about 130 Congonhas arrivals a day (December 2022) fly through one of its segments: a thin, dense flow fills little volume. Volume shares should therefore be read with traffic counts.
   - The options can be combined freely (`--stations=radial|axis`, `--lateral=centreline|traffic`, `--align=<deg>`); outputs of non-default options carry a suffix, so the radial files are never overwritten.
 - **Data licence**: raw Flightradar24 records are licensed and are not distributed here; only the derived envelopes are.
 - The envelopes describe observed traffic, not protected procedure surfaces.
@@ -93,7 +95,9 @@ Rscript generate_approach_surfaces_fr24.R <folder with daily .Rda files> [output
 - `tests/core_tests.html`: unit tests of the pure functions in `index.html` (overlap volume and union, shared segments counted once, altitude interpolation, parallel/crossing split, approach segments, the axis-altitude slab, and parallel-route offsets for straight, turning, collinear, repeated-waypoint and two-waypoint routes). The page can also be opened from a local web server (`python -m http.server`, then `/tests/core_tests.html`).
 - UI tests with `data/` and `tests/fixtures/`: loading files that reuse route names, export, names containing markup (shown as text), and batch parallel routes.
 
-`tests/make_synthetic_fr24.R` writes a synthetic one-day track file (straight-in finals at known lateral offsets after a downwind leg) for checking `generate_approach_surfaces_fr24.R` without licensed data: `Rscript tests/make_synthetic_fr24.R <folder>`, then run the envelope script on that folder.
+`Rscript tests/test_envelopes.R` (R with `dplyr`) tests `generate_approach_surfaces_fr24.R` without licensed data: the lateral smoothing of the along-axis method on profiles that make independently smoothed percentiles cross, and the whole script on synthetic tracks from `tests/make_synthetic_fr24.R` (straight-in finals at known lateral offsets after a downwind leg): the along-axis envelope must recover the known profile, and the default (radial) output must match `tests/expected/`.
+
+Both suites run on GitHub Actions for every pull request and push to `main` (`.github/workflows/tests.yml`).
 
 ## Limitations
 
@@ -106,6 +110,10 @@ Rscript generate_approach_surfaces_fr24.R <folder with daily .Rda files> [output
 - Parallel routes: before this version, offsets were applied in a plane of 10⁻⁵-degree units, so one entered metre became 1.108 m (offsets towards north or south) to 1.114 m (towards east or west), and waypoints were matched to their names, types and altitudes by position, which shifted them for two-waypoint routes and collinear edges. Scenario files made with the earlier version, such as those of the RIDITA 2026 paper (±750 ft entered, ±253 m generated), keep their stored geometry; the overlap analysis always uses the loaded files.
 - Overlap analysis: before this version, a cell's whole overlap was counted as parallel when any overlapping pair in it was parallel, which slightly overstated the parallel share (RIDITA 2026 refined networks: 69.4% instead of 68.2%, 53.4% instead of 52.7%). Overlap totals and segment counts are unchanged.
 - Loader: before this version, a route whose name already existed in another layer was skipped without notice.
+
+## Citing
+
+Cite a tagged release (see *Releases* and `CITATION.cff`) rather than the live dashboard, which changes over time. The RIDITA 2026 paper results can be recomputed with `ridita2026/` (see its README).
 
 ## Technology Stack
 
