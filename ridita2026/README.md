@@ -1,6 +1,6 @@
 # Reproducing the RIDITA 2026 results
 
-Scripts used for the paper *A Methodological Procedure and Supporting Dashboard for Dedicated Urban Air Mobility Corridor Design in the São Paulo Metropolitan Region* (X Congreso Internacional de la RIDITA, 2026). They are Python mirrors of the dashboard's Overlap Analysis plus the paper-specific checks. The dashboard's own overlap engine (`index.html`) gives the same volumetric results (checked to 10⁻¹² on the six scenarios).
+Scripts used for the paper *A methodological procedure and supporting tool for dedicated urban air mobility corridor design in the São Paulo metropolitan region* (X Congreso Internacional de la RIDITA, 2026). They are Python mirrors of the dashboard's Overlap Analysis plus the paper-specific checks. The dashboard's own overlap engine (`index.html`) gives the same volumetric results (checked to 10⁻¹² on the six scenarios).
 
 ## What is and is not in this repository
 
@@ -32,12 +32,12 @@ The corridor lanes were generated with a dashboard version older than this repos
 
 ## Method settings
 
-- Volumes as the dashboard draws them: one box per segment with the start waypoint's width and height, centred on the segment, altitude interpolated along it; zero width/height/altitude take 457 m / 305 m / 760 m.
+- Volumes as the dashboard draws them: one box per segment with the start waypoint's width and height, centered on the segment, altitude interpolated along it; zero width/height/altitude take 457 m / 305 m / 760 m.
 - Subject layer: the scenario's cruise segments; segments touching a `Vertiport` or `Airport` (climb and descent) are reported apart and excluded from the paper's shares.
 - Other layers, in this order: `REH`, `REA`, `ENV_SBGR`, `ENV_SBSP` (radial envelopes unless stated; the stream envelopes for the sensitivity, with `stream_attribution.py` splitting the SBSP share by stream).
 - 50-m cells; per cell, altitude intervals are merged per layer; parallel part = overlap inside segment–obstacle pairs within 30°, intersected pair by pair.
-- Height sweep 1,000 / 800 / 600 / 400 / 200 ft and a 1-m slab at the axis altitude (a footprint share, not a centreline length).
-- Centreline exposure: centreline sampled every 10 m against the same boxes (`centreline_exposure.py`).
+- Height sweep 1,000 / 800 / 600 / 400 / 200 ft and a 1-m slab at the axis altitude (a footprint share, not a centerline length).
+- Centerline exposure: centerline sampled every 10 m against the same boxes (`centreline_exposure.py`).
 - REH reference: base paths cut into 100-m pieces, each with the altitude, height and width of the nearest REH segment (`shared_reh_check.py`).
 - Traffic counts (`occupancy.py`): Flightradar24 tracks of the flights selected by `generate_approach_surfaces_fr24.R`, densified to ≤ 50 m; a flight counts once for a volume set (and once for a segment) if a point lies inside a box and its first point inside falls on 1–31 December 2022, local time; per-day values divide by 31. These are geometric exposures of observed tracks, not conflicts or losses of separation.
 

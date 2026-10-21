@@ -33,7 +33,7 @@ and open <code>/tests/core_tests.html</code>, or run <code>python tests/run_brow
     const { OverlapAnalysis, offsetWaypointsHorizontally } =
         new Function(code + '\nreturn { OverlapAnalysis, offsetWaypointsHorizontally };')();
 
-    // Local metres around 23.55 S, 46.63 W (same metres-per-degree as the dashboard)
+    // Local meters around 23.55 S, 46.63 W (same meters-per-degree as the dashboard)
     const LAT0 = -23.55, LON0 = -46.63, PHI = LAT0 * Math.PI / 180;
     const M_LAT = 111132.92 - 559.82 * Math.cos(2 * PHI) + 1.175 * Math.cos(4 * PHI);
     const M_LON = 111412.84 * Math.cos(PHI) - 93.5 * Math.cos(3 * PHI);
@@ -50,7 +50,7 @@ and open <code>/tests/core_tests.html</code>, or run <code>python tests/run_brow
     const uam = route('U', [wp('A', 0, 0, 1219), wp('B', L, 0, 1219)]);
     const boxVolume = L * W * H;
 
-    // The raster counts whole cells whose centre lies in the footprint: a 457-m width becomes
+    // The raster counts whole cells whose center lies in the footprint: a 457-m width becomes
     // 10 rows of 50 m (500 m) for this east-west segment, so the error is up to one row of cells
     let s = OverlapAnalysis.analyse([uam], [], { cellSize: 10 });
     check('volume of one segment = length x width x height (10-m raster, within 1%)',
@@ -98,12 +98,12 @@ and open <code>/tests/core_tests.html</code>, or run <code>python tests/run_brow
     check('approach segments are separated from cruise segments', s.nCruise === 1 && s.nApproach === 1 && all(s).overlap === 0 && s.approachPct > 0,
         `${s.nCruise} cruise, ${s.nApproach} approach, cruise overlap ${all(s).overlap}, approach ${s.approachPct.toFixed(1)}%`);
 
-    // axis-altitude slab: footprint share, not centreline length. Obstacle axis 300 m north of the
-    // corridor axis covers 71.5-228.5 m of the corridor width (34.4%) but never the centreline.
+    // axis-altitude slab: footprint share, not centerline length. Obstacle axis 300 m north of the
+    // corridor axis covers 71.5-228.5 m of the corridor width (34.4%) but never the centerline.
     const side = route('S', [wp('s1', 0, 300, 1250, { height: 300 }), wp('s2', L, 300, 1250, { height: 300 })]);
     s = OverlapAnalysis.analyse([uam], [layer('SIDE', [side])]);
     const slab = s.sweep.find(x => x.heightFt === 0).pct;
-    check('height sweep at 0 ft is a footprint share at the axis altitude (34.4% within one 50-m row; centreline inside: 0%)',
+    check('height sweep at 0 ft is a footprint share at the axis altitude (34.4% within one 50-m row; centerline inside: 0%)',
         close(slab, 34.4, 100 * 50 / W), `${slab.toFixed(1)}%`);
 
     // ---------------------------------------------------------------- parallel-route geometry
@@ -143,7 +143,7 @@ and open <code>/tests/core_tests.html</code>, or run <code>python tests/run_brow
     }
     const two = pts([[-5000, 0], [5000, 0]]);
     const out2 = offsetWaypointsHorizontally(two, OFF);
-    check('two-point route: start, offset point labelled after the end, fixed end',
+    check('two-point route: start, offset point labeled after the end, fixed end',
         out2.length === 3 && fixedEnds(out2, two) && out2[1].type === 'Waypoint' && out2[1].name === 'W1 offset' &&
         out2[2].type === 'Vertiport' && close(signedDistance(out2[1], two[0], two[1]), OFF, 0.05),
         out2.map(p => `${p.name}/${p.type}`).join(', '));

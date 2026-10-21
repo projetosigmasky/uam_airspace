@@ -1,6 +1,6 @@
 section,claim,paper,computed,status
 3.3,pair paths 36 -> 105,36 / 105,36 / 105,OK
-3.3,unique centreline 86.6 -> 133.2 NM,86.6 / 133.2,86.6 / 133.2,OK
+3.3,unique centerline 86.6 -> 133.2 NM,86.6 / 133.2,86.6 / 133.2,OK
 3.3,independent cycles E-V+C 12 -> 23,12 / 23,"12 / 23 (V=67/91, E=78/113, C=1/1)",OK
 3.3,mean pair path 11.98 -> 11.09 NM (-7.5%),11.98 / 11.09 / -7.5%,11.98 / 11.09 / -7.5%,OK
 3.3,"36 original pairs 11.90 NM, 28 unchanged",11.90 / 28,11.90 / 28,OK
@@ -41,7 +41,7 @@ T2,segments >=50%: 10->7 | 14->9,"(10, 7, 14, 9)","(10, 7, 14, 9)",OK
 3.2,"800-ft corridor (+/-400 ft) at the 4,000-ft axis: almost no REH overlap",< 0.01%,0.005% / 0.005%,OK
 3.2,"(not in text) refined corridors, partly at 3,000 ft inside the REH band, at 800 ft",-,0.84% / 0.62%,INFO
 3.1,SBSP segments 2.9-6.9 NM north-west,"2.9-6.9 NM, NW","2.9-6.9 NM, bearings 285-351 deg",OK
-T2/3.2/abs,centreline in SBSP: 11.7->11.3 (2.8) | 16.1->15.5 (1.9),"(11.7, 11.3, 2.8, 16.1, 15.5, 1.9)","(11.73, 11.32, 2.81, 16.09, 15.52, 1.91)",OK
+T2/3.2/abs,centerline in SBSP: 11.7->11.3 (2.8) | 16.1->15.5 (1.9),"(11.7, 11.3, 2.8, 16.1, 15.5, 1.9)","(11.73, 11.32, 2.81, 16.09, 15.52, 1.91)",OK
 2.4,REH reference: 99% of path within REH,99%,99.72 / 99.75,OK
 abs/3.2/T2,stream SBSP share: 2.1 -> 2.0% | 2.5 -> 2.5%,2.1 / 2.0 / 2.5 / 2.5,"(2.1, 2.012, 2.549, 2.504)",OK
 2.3,16 streams,16,"16 (SBGR 9, SBSP 7), 33374 flights",OK

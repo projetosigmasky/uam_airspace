@@ -2,11 +2,11 @@
 
 Reference implementation of the dashboard's Overlap Analysis (index.html, OverlapAnalysis block).
 Volumes are the boxes drawn in the 3D view: each segment has the width and height of its start
-waypoint (zero values fall back to 457 m / 305 m, as on import), is centred on the segment and its
+waypoint (zero values fall back to 457 m / 305 m, as on import), is centered on the segment and its
 altitude is interpolated along it.
 
-The plan is rasterised into square cells (CELL m) of a local metric plane centred on the UAM layer.
-In each cell covered by a UAM segment (cell centre inside the footprint), the occupied altitude
+The plan is rasterized into square cells (CELL m) of a local metric plane centered on the UAM layer.
+In each cell covered by a UAM segment (cell center inside the footprint), the occupied altitude
 intervals are merged, so lanes and routes that share a waypoint segment are counted once:
   - corridor volume V      = sum over cells of |union of UAM intervals| x cell area
   - overlap with layer L   = sum over cells of |UAM union  intersect  L union| x cell area
@@ -85,7 +85,7 @@ def segments(df, to_xy):
 
 
 def cover(s):
-    """Cells whose centre lies inside the footprint of segment s, and the axis parameter t there."""
+    """Cells whose center lies inside the footprint of segment s, and the axis parameter t there."""
     xs = [s["x0"] + s["L"] * s["ux"] * k + s["hw"] * s["uy"] * m for k in (0, 1) for m in (-1, 1)]
     ys = [s["y0"] + s["L"] * s["uy"] * k - s["hw"] * s["ux"] * m for k in (0, 1) for m in (-1, 1)]
     i0, i1 = math.floor(min(xs) / CELL), math.floor(max(xs) / CELL)

@@ -6,14 +6,14 @@
 #   DEP turning      20 flights, 2-NM-radius turn to the left 3 NM out
 # Nominal paths run from the runway outwards; each flight is offset from its nominal path by a fixed
 # distance along the left normal, 3/4 of the flights spread over -0.05..0.05 NM and 1/4 over
-# 0.35..0.45 NM, so the P5-P95 band is off-centre and its side is testable. Altitude depends only on
+# 0.35..0.45 NM, so the P5-P95 band is off-center and its side is testable. Altitude depends only on
 # the distance u along the nominal path: elevation + 318 ft/NM for arrivals (3 degrees), + 600 ft/NM
 # for departures. The streams, offsets and profiles are exported as `streams` (sourced by the tests).
 STEP <- 0.05
 offsets <- function(n) { m <- n - n %/% 4; c(seq(-0.05, 0.05, length.out = m), seq(0.35, 0.45, length.out = n - m)) }
 # nominal path from the runway outwards: straight legs and arcs, as (s, c) points every STEP NM
 path <- function(legs) {
-  p <- c(0, 0); h <- pi; pts <- list(p)          # h: direction in the (s, c) plane, pi = towards -s
+  p <- c(0, 0); h <- pi; pts <- list(p)          # h: direction in the (s, c) plane, pi = toward -s
   for (L in legs) {
     n <- round(L$len / STEP)
     for (i in seq_len(n)) {
@@ -33,7 +33,7 @@ streams <- list(
   DEP_straight = list(flow = "DEP", n = 30, rate = 600, legs = list(list(len = 10.5))),
   DEP_turning  = list(flow = "DEP", n = 20, rate = 600, legs = list(list(len = 3), list(len = pi, turn = 1, radius = 2), list(len = 8))))
 for (k in names(streams)) streams[[k]]$path <- path(streams[[k]]$legs)
-# departures fly the axis heading, i.e. towards +s from the runway: mirror the arrival-style paths
+# departures fly the axis heading, i.e. toward +s from the runway: mirror the arrival-style paths
 for (k in c("DEP_straight", "DEP_turning")) {
   p <- streams[[k]]$path; p$s <- -p$s; p$ts <- -p$ts; streams[[k]]$path <- p
 }

@@ -63,7 +63,7 @@ def network(path):
 l6, n6, e6, c6, k6 = network(B + "scenarios/routes_uam_detailed_rmsp.csv")
 l12, n12, e12, c12, k12 = network(B + "new_scenario/routes_uam_detailed_rmsp.csv")
 claim("3.3", "pair paths 36 -> 105", "36 / 105", f"{len(l6)} / {len(l12)}", (len(l6), len(l12)) == (36, 105))
-claim("3.3", "unique centreline 86.6 -> 133.2 NM", "86.6 / 133.2", f"{c6 / KM_NM:.1f} / {c12 / KM_NM:.1f}", (round(c6 / KM_NM, 1), round(c12 / KM_NM, 1)) == (86.6, 133.2))
+claim("3.3", "unique centerline 86.6 -> 133.2 NM", "86.6 / 133.2", f"{c6 / KM_NM:.1f} / {c12 / KM_NM:.1f}", (round(c6 / KM_NM, 1), round(c12 / KM_NM, 1)) == (86.6, 133.2))
 claim("3.3", "independent cycles E-V+C 12 -> 23", "12 / 23", f"{e6 - n6 + k6} / {e12 - n12 + k12} (V={n6}/{n12}, E={e6}/{e12}, C={k6}/{k12})",
       (e6 - n6 + k6, e12 - n12 + k12) == (12, 23))
 common = l6.index.intersection(l12.index); new = l12.index.difference(l6.index)
@@ -242,11 +242,11 @@ s["b"] = (np.degrees(np.arctan2((s.lon - lo) * np.cos(np.radians(la)), (s.lat - 
 claim("3.1", "SBSP segments 2.9-6.9 NM north-west", "2.9-6.9 NM, NW", f"{s.r.min():.1f}-{s.r.max():.1f} NM, bearings {s.b.min():.0f}-{s.b.max():.0f} deg",
       round(s.r.min(), 1) == 2.9 and round(s.r.max(), 1) == 6.9 and s.b.min() > 270)
 
-# ---------------------------------------------------------------- centreline, stream variant, traffic counts
+# ---------------------------------------------------------------- centerline, stream variant, traffic counts
 ce = json.load(open(REV + "centreline_exposure.json", encoding="utf-8"))
 cc = (ce["6vp"]["lanes_initial"]["ENV_SBSP"], ce["6vp"]["lanes_refined"]["ENV_SBSP"], ce["6vp"]["base_REH"]["ENV_SBSP"],
       ce["12vp"]["lanes_initial"]["ENV_SBSP"], ce["12vp"]["lanes_refined"]["ENV_SBSP"], ce["12vp"]["base_REH"]["ENV_SBSP"])
-claim("T2/3.2/abs", "centreline in SBSP: 11.7->11.3 (2.8) | 16.1->15.5 (1.9)", "(11.7, 11.3, 2.8, 16.1, 15.5, 1.9)",
+claim("T2/3.2/abs", "centerline in SBSP: 11.7->11.3 (2.8) | 16.1->15.5 (1.9)", "(11.7, 11.3, 2.8, 16.1, 15.5, 1.9)",
       str(tuple(round(x, 2) for x in cc)), tuple(round(x, 1) for x in cc) == (11.7, 11.3, 2.8, 16.1, 15.5, 1.9))
 claim("2.4", "REH reference: 99% of path within REH", "99%", f"{ce['6vp']['base_REH']['within_250m_of_REH_axis_pct']:.2f} / {ce['12vp']['base_REH']['within_250m_of_REH_axis_pct']:.2f}",
       min(ce['6vp']['base_REH']['within_250m_of_REH_axis_pct'], ce['12vp']['base_REH']['within_250m_of_REH_axis_pct']) >= 99)

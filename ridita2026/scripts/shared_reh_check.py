@@ -1,7 +1,7 @@
 """How much do the airport-flow envelopes overlap the existing REH/REA, and would a shared-REH UAM
 network (eVTOLs flying inside the REH they follow) overlap them less than the dedicated corridors?
 
-Uses the volumetric machinery of overlap_volume.py (same rasterisation, 50-m cells)."""
+Uses the volumetric machinery of overlap_volume.py (same rasterization, 50-m cells)."""
 import importlib.util
 import json
 from pathlib import Path

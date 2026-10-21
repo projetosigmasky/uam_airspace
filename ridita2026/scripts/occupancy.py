@@ -2,7 +2,7 @@
 
 Independent of how airport-flow envelopes are drawn: each flight's track (as selected by
 generate_approach_surfaces_fr24.R) is densified to <= 50 m and tested against the dashboard boxes
-(start-node width and height, centred, altitude interpolated). Volumes: cruise segments of the UAM
+(start-node width and height, centered, altitude interpolated). Volumes: cruise segments of the UAM
 networks (segments touching a vertiport or airport excluded), the REH reference (shared_reh_<stage>.csv),
 the same REH-reference pieces with one corridor lane's box at the REH altitude or at 4,000 ft, and the
 REH and REA routes in the network area.
