@@ -73,7 +73,7 @@ for (icao in names(syn$airports_syn)) {
     alt_err <- max(abs(c(g$lower_limit_m[inner], g$upper_limit_m[inner]) / FT - rep(A$elev + S$rate * p$u[j][inner], 2)))
     check(sprintf("%s %s follows the known path and climb profile (%s)", icao, nm, truth_of[[paste0(substr(nm, 1, 3), "_", sub(".*_", "", nm))]]),
           sum(inner) >= 80 && alt_err < 50 && max(abs(offset[inner] - mean(q))) < 0.03,
-          sprintf("%d stations, altitude error %.1f ft, centre %.3f-%.3f NM (P5-P95 mid-point %.3f)",
+          sprintf("%d stations, altitude error %.1f ft, center %.3f-%.3f NM (P5-P95 mid-point %.3f)",
                   sum(inner), alt_err, min(offset[inner]), max(offset[inner]), mean(q)))
     check(sprintf("%s %s spans the P5-P95 lateral band", icao, nm), max(abs(g$width_nm[inner] - diff(q))) < 0.02,
           sprintf("width %.3f-%.3f NM, expected %.3f", min(g$width_nm[inner]), max(g$width_nm[inner]), diff(q)))

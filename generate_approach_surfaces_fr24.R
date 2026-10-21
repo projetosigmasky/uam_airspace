@@ -37,7 +37,7 @@
 #      the axis is assigned to a station farther out than its along-axis position.
 #   4. At each station: 5th (P5) and 95th (P95) altitude percentiles and the P95 of the absolute
 #      cross-axis offset, each smoothed with a cubic spline (spar = 0.5).
-#   5. Each cross-section is bounded vertically by the smoothed P5 and P95 altitudes, centred on
+#   5. Each cross-section is bounded vertically by the smoothed P5 and P95 altitudes, centered on
 #      the extended runway axis and 2 x the smoothed absolute-offset P95 wide.
 #
 # Stream envelopes (--stations=stream), per airport, after steps 1 and 2:
@@ -49,14 +49,14 @@
 #       altitude and signed cross-path offset of its flights (nearest sample per flight), smoothed
 #       along the path (about one spline degree of freedom per NM).
 #   S4. Each cross-section is bounded by the smoothed P5 and P95 altitudes and spans the smoothed
-#       P5-P95 lateral band, centred on the stream.
+#       P5-P95 lateral band, centered on the stream.
 #
 # Outputs in <out_dir> (default: data/ next to this script):
 #   approach_surfaces_<ICAO>.csv     dashboard route files (route, id, name, lat, lon, type,
-#                                    altitude, height, width; metres). One route per side (one
+#                                    altitude, height, width; meters). One route per side (one
 #                                    per stream with --stations=stream, e.g. ARR17_S1); altitude
 #                                    is the P5-P95 mid-point and height the band thickness,
-#                                    because the dashboard centres volumes on altitude.
+#                                    because the dashboard centers volumes on altitude.
 #   approach_surfaces_stations.csv   per-station statistics (raw and smoothed)
 #   approach_surfaces_summary.csv    flights and extent per side (per stream)
 
@@ -124,7 +124,7 @@ smooth_col <- function(x, y) {
 # its mean path, from the runway outwards; at each station, the P5/P95 altitude and signed
 # cross-path offset of its flights (nearest sample per flight) are smoothed with about one spline
 # degree of freedom per STREAM_SMOOTH_NM of path, the width on a log scale so it stays positive;
-# each smoothed centre and width is kept within the raw values within LOCAL_RANGE_NM of its
+# each smoothed center and width is kept within the raw values within LOCAL_RANGE_NM of its
 # station (no overshoot or collapse at abrupt changes). Raw widths below MIN_WIDTH_NM (a
 # numerical guard) are raised to it.
 MIN_WIDTH_NM <- 0.001
@@ -231,7 +231,7 @@ stream_bands <- function(members, a) {
            lo_m = pmin(p5_s, p95_s), hi_m = pmax(p5_s, p95_s))
   if (!nrow(bands)) return(NULL)
   lateral <- smooth_stream_lateral(bands$distance_nm, bands$v_p5_nm, bands$v_p95_nm)
-  # station: point of the mean path shifted by the band centre along the left normal
+  # station: point of the mean path shifted by the band center along the left normal
   mid_u <- cum[-1] - seglen / 2
   ux <- approx(mid_u, seg[, 1] / seglen, bands$distance_nm, rule = 2)$y
   uy <- approx(mid_u, seg[, 2] / seglen, bands$distance_nm, rule = 2)$y
@@ -312,11 +312,11 @@ for (icao in names(airports)) {
     mutate(rwy = ifelse(hdiff(rwy_head, a$axis) <= hdiff(rwy_head, a$axis + 180), a$rwy[1], a$rwy[2]),
            alt_msl_m = ifelse(alt == 0, a$elev_m, alt * FT))
 
-  # Local runway-axis frame centred on the ARP (NM)
+  # Local runway-axis frame centered on the ARP (NM)
   H <- a$axis * pi / 180
   traj <- traj %>% mutate(
     e = (lon - a$lon) * cos(a$lat * pi / 180) * 60, n = (lat - a$lat) * 60,
-    s = e * sin(H) + n * cos(H),          # along-axis, positive towards the axis heading
+    s = e * sin(H) + n * cos(H),          # along-axis, positive toward the axis heading
     c = e * cos(H) - n * sin(H))          # cross-axis, positive to the right of the axis heading
 
   if (STATIONS == "stream") {

@@ -10,7 +10,7 @@
    - CSV text in HTML: names containing markup (fixtures/html_in_names.csv; the markup only sets
      window.__xss_* flags) are shown as text in lists, inputs and map popups;
    - batch parallel routes: one waypoint per base waypoint with its attributes, for a route with
-     collinear edges, and the offset in metres.
+     collinear edges, and the offset in meters.
 
 Requirements: Python 3.8+, `pip install websocket-client`, and Chrome, Edge or Chromium (set
 CHROME_PATH if it is not found). Usage, from anywhere:
@@ -209,7 +209,7 @@ def run(cdp_port, base):
           f"{[len(l) for l in lanes]} waypoints")
     if lanes:
         y = [(lane[2]["lat"] + 23.55) * m_lat for lane in lanes]
-        check("lane offsets are in metres (+/-228.6 m at the middle waypoint)",
+        check("lane offsets are in meters (+/-228.6 m at the middle waypoint)",
               abs(y[0] - 228.6) < 0.1 and abs(y[1] + 228.6) < 0.1, f"{y[0]:.2f} m, {y[1]:.2f} m")
     p.close()
 

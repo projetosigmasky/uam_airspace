@@ -4,9 +4,9 @@ On the Congonhas straight-in finals the stream envelope is only about 0.01-0.02 
 below the 50-m raster, so its overlap with the corridors could be aliased. The overlap volume
 between the refined corridors (cruise segments) and that envelope is recomputed at 50, 25, 10 and
 5-m cells in two independent ways, which must converge to the same volume:
-  A  corridors rasterised (as in the paper), restricted to the corridor segments whose footprint
+  A  corridors rasterized (as in the paper), restricted to the corridor segments whose footprint
      touches an envelope footprint (the overlap comes only from those);
-  B  envelope rasterised, with those corridor cruise segments as the obstacle layer.
+  B  envelope rasterized, with those corridor cruise segments as the obstacle layer.
 Shares are relative to the corridor cruise volume at 50 m (Table 2).
 Usage: python thin_envelope_convergence.py [cell sizes...]   (default 50 25 10 5)
 ENV_SBSP_CSV overrides the envelope (default data/approach_surfaces_SBSP_stream.csv; the along-axis
@@ -47,7 +47,7 @@ def load(cell):
 
 
 def pieces(df, cruise_only):
-    """Each segment as its own two-waypoint route, with its footprint polygon (local metres)."""
+    """Each segment as its own two-waypoint route, with its footprint polygon (local meters)."""
     rows, polys = [], []
     for r, g in df.groupby("route", sort=False):
         g = g.sort_values("id").reset_index(drop=True)

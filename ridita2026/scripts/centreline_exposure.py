@@ -1,16 +1,16 @@
-"""Centreline exposure: fraction of route centreline length lying inside obstacle volumes.
+"""Centerline exposure: fraction of route centerline length lying inside obstacle volumes.
 
 Unlike the volumetric overlap (overlap_volume.py), which measures how much of the corridor VOLUME
-lies inside other volumes, this measures LINE length: each cruise segment's centreline is sampled
+lies inside other volumes, this measures LINE length: each cruise segment's centerline is sampled
 every STEP m at its interpolated altitude, and a sample counts when it lies inside an obstacle box
-as the dashboard draws it (start-node width and height, centred on the segment, altitude
+as the dashboard draws it (start-node width and height, centered on the segment, altitude
 interpolated along it). Shared segments are counted once (unique geometry).
 
 Paths evaluated (cruise segments only; segments touching a vertiport or airport excluded):
-  lanes, initial / refined  the generated lane centrelines of the scenario files
+  lanes, initial / refined  the generated lane centerlines of the scenario files
   base path @ 4,000 ft      the original undisplaced pair paths at the 4,000-ft corridor axis
   base path @ REH (REH reference)  the same paths at the altitude of the nearest REH segment
-Geometry uses the dashboard's local projection (centred on each path set). Writes centreline_exposure.json.
+Geometry uses the dashboard's local projection (centered on each path set). Writes centreline_exposure.json.
 """
 import json
 import math
@@ -31,7 +31,7 @@ TERMINALS = {"Vertiport", "Airport"}
 
 
 def projection(df):
-    """Local equirectangular plane centred on the bounding box of df (as the dashboard)."""
+    """Local equirectangular plane centered on the bounding box of df (as the dashboard)."""
     lat0 = (df.lat.min() + df.lat.max()) / 2
     lon0 = (df.lon.min() + df.lon.max()) / 2
     phi = math.radians(lat0)
@@ -159,6 +159,6 @@ if __name__ == "__main__":
             res["base_REH"][k] = 100 * ws[hits[k]].sum() / ws.sum()
         res["base_REH"]["ALL_except_REH"] = 100 * ws[np.logical_or.reduce(list(hits.values()))].sum() / ws.sum()
         out[stage] = res
-        print(f"\n{stage}: centreline length inside each layer (% of cruise centreline length)")
+        print(f"\n{stage}: centerline length inside each layer (% of cruise centerline length)")
         print(pd.DataFrame(res).T.round(2).to_string())
     json.dump(out, open(REV + "centreline_exposure.json", "w"), indent=1)
