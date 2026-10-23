@@ -2,7 +2,7 @@
 # 5,000 ft with the opposite heading (s from 0 to -10.5 NM), then a straight-in final parallel to
 # the axis at a known lateral offset (1 or 3 NM) on a 3-degree path (318 ft/NM above field
 # elevation), ending with a ground sample abeam the threshold. Truth at along-axis distance d on
-# final: elev + 318 d ft. Used for the radial reference outputs in tests/expected/.
+# final: elev + 318 d ft. Used for the radial reference outputs in tests/envelopes/expected/.
 set.seed(1)
 make <- function(icao, lat0, lon0, axis_deg, elev_ft, offsets, nflights) {
   H <- axis_deg * pi / 180; rows <- list(); id <- 0

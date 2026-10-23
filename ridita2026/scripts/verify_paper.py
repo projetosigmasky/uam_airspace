@@ -9,9 +9,10 @@ import numpy as np
 import pandas as pd
 
 sys.stdout.reconfigure(encoding="utf-8")
-from paths import DATA, INPUTS, RESULTS, TRACKS  # noqa: E402  (see paths.py)
+from paths import AIRSPACE, ENVELOPES, INPUTS, RESULTS, TRACKS  # noqa: E402  (see paths.py)
 B = str(INPUTS) + "/"
-REPO = str(DATA) + "/"
+AIR = str(AIRSPACE) + "/"
+ENV_DIR = str(ENVELOPES) + "/"
 REV = str(RESULTS) + "/"
 FT, NM, R = 0.3048, 1852.0, 6371.0088
 KM_NM = 1.852
@@ -163,9 +164,9 @@ def xml_rows(f):
             for el in ET.parse(f).getroot().iter() if any(c.tag.endswith('fixo_a_lat') for c in el)]
 
 
-reh = pd.read_csv(REPO + "nodes_edges_reh.csv").groupby("route", sort=False).agg(a=("altitude", "first"), h=("height", "first"), w=("width", "first"))
-rea = pd.read_csv(REPO + "nodes_edges_rea.csv").groupby("route", sort=False).agg(a=("altitude", "first"), h=("height", "first"), w=("width", "first"))
-xr, xa = xml_rows(REPO + "xml/CV_REH_XP_SAO_PAULO.xml"), xml_rows(REPO + "xml/CV_REA_XP1_SAO_PAULO.xml")
+reh = pd.read_csv(AIR + "nodes_edges_reh.csv").groupby("route", sort=False).agg(a=("altitude", "first"), h=("height", "first"), w=("width", "first"))
+rea = pd.read_csv(AIR + "nodes_edges_rea.csv").groupby("route", sort=False).agg(a=("altitude", "first"), h=("height", "first"), w=("width", "first"))
+xr, xa = xml_rows(AIR + "xml/CV_REH_XP_SAO_PAULO.xml"), xml_rows(AIR + "xml/CV_REA_XP1_SAO_PAULO.xml")
 claim("2.1", "106 REH / 119 REA", "106 / 119", f"{len(reh)} / {len(rea)} (XML {len(xr)} / {len(xa)})", (len(reh), len(rea)) == (106, 119))
 claim("2.1", "REH widths 0.27/0.11 NM; REA 1-3 NM", "0.27, 0.11 / 1-3",
       f"REH {sorted(float(x) for x in np.round(reh.w.unique() / NM, 2))}; REA {sorted(float(x) for x in np.round(rea.w.unique() / NM, 2))}",
@@ -187,8 +188,8 @@ claim("2.2", "78% of REA with published bands have floors < 4,500 ft, median 4,0
 
 
 # ---------------------------------------------------------------- 2.3 envelopes
-st = pd.read_csv(REPO + "approach_surfaces_stations.csv")
-summ = pd.read_csv(REPO + "approach_surfaces_summary.csv")
+st = pd.read_csv(ENV_DIR + "approach_surfaces_stations.csv")
+summ = pd.read_csv(ENV_DIR + "approach_surfaces_summary.csv")
 at5 = st[np.isclose(st.distance_nm, 5.0)].lower_limit_m / FT
 at10 = st[np.isclose(st.distance_nm, 10.0)].lower_limit_m / FT
 claim("2.3", "lower limit 3,650-3,900 ft at 5 NM; 4,600-5,000 ft at 10 NM", "3650-3900 / 4600-5000",
@@ -243,7 +244,7 @@ claim("3.1", "SBSP segments 2.9-6.9 NM north-west", "2.9-6.9 NM, NW", f"{s.r.min
       round(s.r.min(), 1) == 2.9 and round(s.r.max(), 1) == 6.9 and s.b.min() > 270)
 
 # ---------------------------------------------------------------- centerline, stream variant, traffic counts
-ce = json.load(open(REV + "centreline_exposure.json", encoding="utf-8"))
+ce = json.load(open(REV + "centerline_exposure.json", encoding="utf-8"))
 cc = (ce["6vp"]["lanes_initial"]["ENV_SBSP"], ce["6vp"]["lanes_refined"]["ENV_SBSP"], ce["6vp"]["base_REH"]["ENV_SBSP"],
       ce["12vp"]["lanes_initial"]["ENV_SBSP"], ce["12vp"]["lanes_refined"]["ENV_SBSP"], ce["12vp"]["base_REH"]["ENV_SBSP"])
 claim("T2/3.2/abs", "centerline in SBSP: 11.7->11.3 (2.8) | 16.1->15.5 (1.9)", "(11.7, 11.3, 2.8, 16.1, 15.5, 1.9)",
@@ -254,14 +255,14 @@ vs = json.load(open(REV + "stream/overlap_volume_stream.json", encoding="utf-8")
 ss = tuple(vs[c]["rows"]["ENV_SBSP"]["pct_of_volume"] for c in (r6i, r6r, r12i, r12r))
 claim("abs/3.2/T2", "stream SBSP share: 2.1 -> 2.0% | 2.5 -> 2.5%", "2.1 / 2.0 / 2.5 / 2.5", str(tuple(round(x, 3) for x in ss)),
       tuple(round(x, 1) for x in ss) == (2.1, 2.0, 2.5, 2.5))
-sm = pd.read_csv(REPO + "approach_surfaces_summary_stream.csv")
+sm = pd.read_csv(ENV_DIR + "approach_surfaces_summary_stream.csv")
 claim("2.3", "16 streams", "16", f"{len(sm)} (SBGR {(sm.icao == 'SBGR').sum()}, SBSP {(sm.icao == 'SBSP').sum()}), {sm.flights.sum()} flights",
       len(sm) == 16)
 at = json.load(open(REV + "stream/stream_attribution.json", encoding="utf-8"))[r6r]
 arr = sum(x for k, x in at.items() if k.startswith("ARR"))
 claim("3.2", "six-vertiport stream share almost all in departure streams", "almost all",
       f"arrival streams {arr:.3f}% of {at['ENV_SBSP']:.3f}%", arr < 0.05 * at["ENV_SBSP"])
-fin = pd.read_csv(REPO + "approach_surfaces_stations_stream.csv").query("icao == 'SBSP' and stream == 'ARR17_S1'")
+fin = pd.read_csv(ENV_DIR + "approach_surfaces_stations_stream.csv").query("icao == 'SBSP' and stream == 'ARR17_S1'")
 tube = fin[np.hypot((fin.lon - lo) * np.cos(np.radians(la)) * 60, (fin.lat - la) * 60).between(4.0, 5.0)].width_nm
 claim("3.2", "runway 17 final a tube 0.02 NM wide (stream ARR17_S1, 4-5 NM from the ARP)", "0.02", f"{tube.min():.3f}-{tube.max():.3f}",
       len(tube) > 0 and round(tube.max(), 2) <= 0.02)

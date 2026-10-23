@@ -2,7 +2,7 @@
 # Empirical approach/departure envelopes for SBGR and SBSP from Flightradar24 tracks
 # ==================================================================================
 # Usage:
-#   Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]
+#   Rscript tools/generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]
 #
 # The default (--stations=radial) reproduces the published envelopes, one per side of the
 # airport. --stations=stream builds one envelope per direction-resolved traffic stream instead
@@ -51,7 +51,7 @@
 #   S4. Each cross-section is bounded by the smoothed P5 and P95 altitudes and spans the smoothed
 #       P5-P95 lateral band, centered on the stream.
 #
-# Outputs in <out_dir> (default: data/ next to this script):
+# Outputs in <out_dir> (default: data/envelopes/ in this repository):
 #   approach_surfaces_<ICAO>.csv     dashboard route files (route, id, name, lat, lon, type,
 #                                    altitude, height, width; meters). One route per side (one
 #                                    per stream with --stations=stream, e.g. ARR17_S1); altitude
@@ -74,11 +74,11 @@ if (length(unknown)) stop(sprintf("Unknown option(s): %s (the along-axis options
                                   paste(unknown, collapse = ", ")))
 STATIONS <- opt_value("stations", "radial", c("radial", "stream"))
 args <- all_args[!grepl("^--", all_args)]
-if (length(args) < 1) stop("Usage: Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]")
+if (length(args) < 1) stop("Usage: Rscript tools/generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]")
 FR24_DIR <- args[1]
 script_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 script_dir <- if (length(script_arg)) dirname(normalizePath(sub("^--file=", "", script_arg))) else getwd()
-OUT_DIR <- if (length(args) >= 2) args[2] else file.path(script_dir, "data")
+OUT_DIR <- if (length(args) >= 2) args[2] else file.path(dirname(script_dir), "data", "envelopes")
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 SUFFIX <- if (STATIONS == "stream") "_stream" else ""
 cat(if (STATIONS == "stream") "Stations: along the mean path of each direction-resolved stream\n" else
@@ -158,7 +158,7 @@ smooth_stream_lateral <- function(x, v5, v95) {
   mid <- (v5 + v95) / 2; w <- pmax(v95 - v5, MIN_WIDTH_NM)
   near <- lapply(x, function(xi) which(abs(x - xi) <= LOCAL_RANGE_NM + 1e-9))
   bound <- function(s, raw) pmin(pmax(s, sapply(near, function(k) min(raw[k]))), sapply(near, function(k) max(raw[k])))
-  list(centre = bound(smooth_len(x, mid), mid), width = bound(exp(smooth_len(x, log(w))), w))
+  list(center = bound(smooth_len(x, mid), mid), width = bound(exp(smooth_len(x, log(w))), w))
 }
 
 # Last pass of each flight through the circle, ordered from the runway outwards
@@ -221,7 +221,7 @@ stream_bands <- function(members, a) {
   }))
   bands <- proj %>% mutate(k = round(u / DISTANCE_STEP_NM), err = abs(u - k * DISTANCE_STEP_NM)) %>%
     group_by(indicat, k) %>% slice_min(err, n = 1, with_ties = FALSE) %>% ungroup() %>%
-    group_by(k) %>% summarise(
+    group_by(k) %>% summarize(
       n_flights = n(),
       p5_m = quantile(alt, PERCENTILE_P, names = FALSE), p95_m = quantile(alt, 1 - PERCENTILE_P, names = FALSE),
       v_p5_nm = quantile(v, PERCENTILE_P, names = FALSE), v_p95_nm = quantile(v, 1 - PERCENTILE_P, names = FALSE),
@@ -236,9 +236,9 @@ stream_bands <- function(members, a) {
   ux <- approx(mid_u, seg[, 1] / seglen, bands$distance_nm, rule = 2)$y
   uy <- approx(mid_u, seg[, 2] / seglen, bands$distance_nm, rule = 2)$y
   nn <- sqrt(ux^2 + uy^2)
-  e <- approx(cum, ref[, 1], bands$distance_nm, rule = 2)$y - uy / nn * lateral$centre
-  n <- approx(cum, ref[, 2], bands$distance_nm, rule = 2)$y + ux / nn * lateral$centre
-  bands %>% mutate(centre_nm = lateral$centre, width_nm = lateral$width,
+  e <- approx(cum, ref[, 1], bands$distance_nm, rule = 2)$y - uy / nn * lateral$center
+  n <- approx(cum, ref[, 2], bands$distance_nm, rule = 2)$y + ux / nn * lateral$center
+  bands %>% mutate(center_nm = lateral$center, width_nm = lateral$width,
                    lat = a$lat + n / 60, lon = a$lon + e / (60 * cos(a$lat * pi / 180)), path_nm = max(cum))
 }
 
@@ -343,7 +343,7 @@ for (icao in names(airports)) {
       filter(sgn * s >= 0, dist <= MAX_DISTANCE_NM + 0.05) %>%
       mutate(k = round(dist / DISTANCE_STEP_NM), err = abs(dist - k * DISTANCE_STEP_NM)) %>%
       group_by(indicat, k) %>% slice_min(err, n = 1, with_ties = FALSE) %>% ungroup()
-    bands <- st %>% group_by(k) %>% summarise(
+    bands <- st %>% group_by(k) %>% summarize(
       n_flights = n(),
       p5_m = quantile(alt_msl_m, PERCENTILE_P, names = FALSE),
       p95_m = quantile(alt_msl_m, 1 - PERCENTILE_P, names = FALSE),
@@ -395,7 +395,7 @@ if (STATIONS == "stream") {
   stations <- bind_rows(station_rows) %>%
     transmute(icao, stream, flow, runway, station = k, distance_along_path_nm = distance_nm, lat, lon, n_flights,
               p5_alt_m = p5_m, p95_alt_m = p95_m, p5_lateral_nm = v_p5_nm, p95_lateral_nm = v_p95_nm,
-              lower_limit_m = lo_m, upper_limit_m = hi_m, centre_offset_nm = centre_nm, width_nm)
+              lower_limit_m = lo_m, upper_limit_m = hi_m, center_offset_nm = center_nm, width_nm)
   write.csv(stations, file.path(OUT_DIR, sprintf("approach_surfaces_stations%s.csv", SUFFIX)), row.names = FALSE)
   cat("Done.\n")
   quit(save = "no")

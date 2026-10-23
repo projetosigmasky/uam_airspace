@@ -1,6 +1,6 @@
 """Volumetric overlap between the UAM corridor network and REH, REA and airport-flow envelopes.
 
-Reference implementation of the dashboard's Overlap Analysis (index.html, OverlapAnalysis block).
+Reference implementation of the dashboard's Overlap Analysis (js/overlap-analysis.js).
 Volumes are the boxes drawn in the 3D view: each segment has the width and height of its start
 waypoint (zero values fall back to 457 m / 305 m, as on import), is centered on the segment and its
 altitude is interpolated along it.
@@ -30,9 +30,10 @@ import numpy as np
 import pandas as pd
 
 sys.stdout.reconfigure(encoding="utf-8")
-from paths import DATA, INPUTS, RESULTS, TRACKS  # noqa: E402  (see paths.py)
+from paths import AIRSPACE, ENVELOPES, INPUTS, RESULTS, TRACKS  # noqa: E402  (see paths.py)
 B = str(INPUTS) + "/"
-REPO = str(DATA) + "/"
+AIR = str(AIRSPACE) + "/"
+ENV_DIR = str(ENVELOPES) + "/"
 REV = str(RESULTS) + "/"
 FT = 0.3048
 CELL = float(os.environ.get("CELL_M", 50.0))
@@ -47,10 +48,10 @@ CASES = {"6vp_initial": "scenarios/scenario_horizontal_4000ft_expanded.csv",
          "12vp_initial": "new_scenario/new_scenario_horizontal_4000ft.csv",
          "12vp_refined": "new_scenario/new_scenario_horizontal_3000ft_displaced.csv",
          "12vp_lateral": "new_scenario/new_scenario_horizontal_4000ft_displaced.csv"}
-LAYERS = {"REH": os.environ.get("REH_CSV", REPO + "nodes_edges_reh.csv"),
-          "REA": os.environ.get("REA_CSV", REPO + "nodes_edges_rea.csv"),
-          "ENV_SBGR": os.environ.get("ENV_SBGR_CSV", REPO + "approach_surfaces_SBGR.csv"),
-          "ENV_SBSP": os.environ.get("ENV_SBSP_CSV", REPO + "approach_surfaces_SBSP.csv")}
+LAYERS = {"REH": os.environ.get("REH_CSV", AIR + "nodes_edges_reh.csv"),
+          "REA": os.environ.get("REA_CSV", AIR + "nodes_edges_rea.csv"),
+          "ENV_SBGR": os.environ.get("ENV_SBGR_CSV", ENV_DIR + "approach_surfaces_SBGR.csv"),
+          "ENV_SBSP": os.environ.get("ENV_SBSP_CSV", ENV_DIR + "approach_surfaces_SBSP.csv")}
 
 
 def projection(df):

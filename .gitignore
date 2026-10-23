@@ -3,3 +3,6 @@
 ridita2026/inputs/
 ridita2026/results/
 __pycache__/
+
+# By-product of tools/convert_xml_to_csv.py (REH + REA in one file); not part of the data set
+data/airspace/nodes_edges_combined.csv

@@ -1,18 +1,18 @@
 # Reproducing the RIDITA 2026 results
 
-Scripts used for the paper *A methodological procedure and supporting tool for dedicated urban air mobility corridor design in the São Paulo metropolitan region* (X Congreso Internacional de la RIDITA, 2026). They are Python mirrors of the dashboard's Overlap Analysis plus the paper-specific checks. The dashboard's own overlap engine (`index.html`) gives the same volumetric results (checked to 10⁻¹² on the six scenarios).
+Scripts used for the paper *A methodological procedure and supporting tool for dedicated urban air mobility corridor design in the São Paulo metropolitan region* (X Congreso Internacional de la RIDITA, 2026). They are Python mirrors of the dashboard's Overlap Analysis plus the paper-specific checks. The dashboard's own overlap engine (`js/overlap-analysis.js`) gives the same volumetric results (checked to 10⁻¹² on the six scenarios).
 
 ## What is and is not in this repository
 
 | Input | Status |
 |---|---|
-| REH and REA volumes (`data/nodes_edges_reh.csv`, `data/nodes_edges_rea.csv`), from DECEA GeoAISWEB XML (`data/xml/`) | Public, in this repository |
-| Airport-flow envelopes, radial method (`data/approach_surfaces_*.csv`) and stream method (`data/approach_surfaces_*_stream.csv`); the along-axis method, the alternative in release `ridita-2026`, is only in releases `ridita-2026` and `ridita-2026.1` | Public derived data, in this repository |
+| REH and REA volumes (`data/airspace/nodes_edges_reh.csv`, `data/airspace/nodes_edges_rea.csv`), from DECEA GeoAISWEB XML (`data/airspace/xml/`) | Public, in this repository |
+| Airport-flow envelopes, radial method (`data/envelopes/approach_surfaces_*.csv`) and stream method (`data/envelopes/approach_surfaces_*_stream.csv`); the along-axis method, the alternative in release `ridita-2026`, is only in releases `ridita-2026` and `ridita-2026.1` | Public derived data, in this repository |
 | Frozen UAM scenario files (below) | **Not in this repository.** Available on request from the authors |
 | Flightradar24 tracks, December 2022 (31 daily `.Rda` files) | **Licensed; not distributed.** Needed only to rebuild the envelopes and for the traffic counts |
 | SIGMA-Sky Product II report (demand scenarios) | Public, at https://sigma.ita.br/sky/produtos |
 
-Without the scenario files, no corridor result of the paper can be recomputed from this repository alone. The tests in `../tests/` check the code on public and synthetic data.
+Without the scenario files, no corridor result of the paper can be recomputed from this repository alone. The tests in `../tests/` (`dashboard/`, `envelopes/`) check the code on public and synthetic data.
 
 ### Scenario files (`RIDITA_INPUTS`)
 
@@ -37,9 +37,9 @@ The corridor lanes were generated with a dashboard version older than this repos
 - Other layers, in this order: `REH`, `REA`, `ENV_SBGR`, `ENV_SBSP` (radial envelopes unless stated; the stream envelopes for the sensitivity, with `stream_attribution.py` splitting the SBSP share by stream).
 - 50-m cells; per cell, altitude intervals are merged per layer; parallel part = overlap inside segment–obstacle pairs within 30°, intersected pair by pair.
 - Height sweep 1,000 / 800 / 600 / 400 / 200 ft and a 1-m slab at the axis altitude (a footprint share, not a centerline length).
-- Centerline exposure: centerline sampled every 10 m against the same boxes (`centreline_exposure.py`).
+- Centerline exposure: centerline sampled every 10 m against the same boxes (`centerline_exposure.py`).
 - REH reference: base paths cut into 100-m pieces, each with the altitude, height and width of the nearest REH segment (`shared_reh_check.py`).
-- Traffic counts (`occupancy.py`): Flightradar24 tracks of the flights selected by `generate_approach_surfaces_fr24.R`, densified to ≤ 50 m; a flight counts once for a volume set (and once for a segment) if a point lies inside a box and its first point inside falls on 1–31 December 2022, local time; per-day values divide by 31. These are geometric exposures of observed tracks, not conflicts or losses of separation.
+- Traffic counts (`occupancy.py`): Flightradar24 tracks of the flights selected by `tools/generate_approach_surfaces_fr24.R`, densified to ≤ 50 m; a flight counts once for a volume set (and once for a segment) if a point lies inside a box and its first point inside falls on 1–31 December 2022, local time; per-day values divide by 31. These are geometric exposures of observed tracks, not conflicts or losses of separation.
 
 ## Running
 

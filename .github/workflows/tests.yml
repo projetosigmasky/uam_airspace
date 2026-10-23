@@ -16,7 +16,7 @@ jobs:
           python-version: "3.12"
       - run: pip install websocket-client
       - run: google-chrome --version
-      - run: python tests/run_browser_tests.py
+      - run: python tests/dashboard/run_browser_tests.py
 
   envelopes:
     name: Envelope script (synthetic tracks)
@@ -27,4 +27,4 @@ jobs:
         with:
           use-public-rspm: true
       - run: Rscript -e 'install.packages("dplyr")'
-      - run: Rscript tests/test_envelopes.R
+      - run: Rscript tests/envelopes/test_envelopes.R

@@ -9,7 +9,7 @@ between the refined corridors (cruise segments) and that envelope is recomputed 
   B  envelope rasterized, with those corridor cruise segments as the obstacle layer.
 Shares are relative to the corridor cruise volume at 50 m (Table 2).
 Usage: python thin_envelope_convergence.py [cell sizes...]   (default 50 25 10 5)
-ENV_SBSP_CSV overrides the envelope (default data/approach_surfaces_SBSP_stream.csv; the along-axis
+ENV_SBSP_CSV overrides the envelope (default data/envelopes/approach_surfaces_SBSP_stream.csv; the along-axis
 envelope of release ridita-2026 was checked the same way).
 Writes thin_envelope_convergence.csv in RIDITA_RESULTS.
 """
@@ -25,14 +25,14 @@ import pandas as pd
 from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
-from paths import DATA, INPUTS, RESULTS
+from paths import ENVELOPES, INPUTS, RESULTS
 
 sys.stdout.reconfigure(encoding="utf-8")
 CELLS = [float(c) for c in sys.argv[1:]] or [50.0, 25.0, 10.0, 5.0]
 TERMINALS = {"Vertiport", "Airport"}
 CASES = {"6vp_refined": "scenarios/scenario_horizontal_3000ft_expanded_displaced.csv",
          "12vp_refined": "new_scenario/new_scenario_horizontal_3000ft_displaced.csv"}
-ENV = Path(os.environ.get("ENV_SBSP_CSV", DATA / "approach_surfaces_SBSP_stream.csv"))
+ENV = Path(os.environ.get("ENV_SBSP_CSV", ENVELOPES / "approach_surfaces_SBSP_stream.csv"))
 LAT0 = -23.6261
 M_LAT = 111132.92 - 559.82 * math.cos(2 * math.radians(LAT0)) + 1.175 * math.cos(4 * math.radians(LAT0))
 M_LON = 111412.84 * math.cos(math.radians(LAT0)) - 93.5 * math.cos(3 * math.radians(LAT0))

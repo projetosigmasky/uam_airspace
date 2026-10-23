@@ -1,6 +1,6 @@
 """Corridor volume share inside each SBSP stream envelope (Section 3.2).
 
-Each stream of data/approach_surfaces_SBSP_stream.csv is evaluated as its own layer (50-m cells, as
+Each stream of data/envelopes/approach_surfaces_SBSP_stream.csv is evaluated as its own layer (50-m cells, as
 in Table 2), so shares can add up to more than the union where streams overlap; the ENV_SBSP entry is
 the union of all streams. Writes stream_attribution.json in RIDITA_RESULTS.
 Usage: python stream_attribution.py
@@ -12,13 +12,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from paths import DATA, INPUTS, RESULTS
+from paths import ENVELOPES, INPUTS, RESULTS
 
 sys.stdout.reconfigure(encoding="utf-8")
 spec = importlib.util.spec_from_file_location("overlap_volume", Path(__file__).with_name("overlap_volume.py"))
 ov = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ov)
-env = pd.read_csv(DATA / "approach_surfaces_SBSP_stream.csv")
+env = pd.read_csv(ENVELOPES / "approach_surfaces_SBSP_stream.csv")
 layers = {r: g for r, g in env.groupby("route", sort=False)}
 layers["ENV_SBSP"] = env
 out = {}

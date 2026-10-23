@@ -10,7 +10,7 @@ Paths evaluated (cruise segments only; segments touching a vertiport or airport 
   lanes, initial / refined  the generated lane centerlines of the scenario files
   base path @ 4,000 ft      the original undisplaced pair paths at the 4,000-ft corridor axis
   base path @ REH (REH reference)  the same paths at the altitude of the nearest REH segment
-Geometry uses the dashboard's local projection (centered on each path set). Writes centreline_exposure.json.
+Geometry uses the dashboard's local projection (centered on each path set). Writes centerline_exposure.json.
 """
 import json
 import math
@@ -22,9 +22,10 @@ from shapely.geometry import LineString, Point
 from shapely.strtree import STRtree
 
 sys.stdout.reconfigure(encoding="utf-8")
-from paths import DATA, INPUTS, RESULTS, TRACKS  # noqa: E402  (see paths.py)
+from paths import AIRSPACE, ENVELOPES, INPUTS, RESULTS, TRACKS  # noqa: E402  (see paths.py)
 B = str(INPUTS) + "/"
-REPO = str(DATA) + "/"
+AIR = str(AIRSPACE) + "/"
+ENV_DIR = str(ENVELOPES) + "/"
 REV = str(RESULTS) + "/"
 STEP = 10.0
 TERMINALS = {"Vertiport", "Airport"}
@@ -118,8 +119,8 @@ def reh_altitude(xs, ys, reh, tr):
     return np.array(alts)[idx], d
 
 
-layers = {"REH": pd.read_csv(REPO + "nodes_edges_reh.csv"), "REA": pd.read_csv(REPO + "nodes_edges_rea.csv"),
-          "ENV_SBGR": pd.read_csv(REPO + "approach_surfaces_SBGR.csv"), "ENV_SBSP": pd.read_csv(REPO + "approach_surfaces_SBSP.csv")}
+layers = {"REH": pd.read_csv(AIR + "nodes_edges_reh.csv"), "REA": pd.read_csv(AIR + "nodes_edges_rea.csv"),
+          "ENV_SBGR": pd.read_csv(ENV_DIR + "approach_surfaces_SBGR.csv"), "ENV_SBSP": pd.read_csv(ENV_DIR + "approach_surfaces_SBSP.csv")}
 
 if __name__ == "__main__":
     nets = {"6vp": ("scenarios/routes_uam_detailed_rmsp.csv", "scenarios/scenario_horizontal_4000ft_expanded.csv",
@@ -161,4 +162,4 @@ if __name__ == "__main__":
         out[stage] = res
         print(f"\n{stage}: centerline length inside each layer (% of cruise centerline length)")
         print(pd.DataFrame(res).T.round(2).to_string())
-    json.dump(out, open(REV + "centreline_exposure.json", "w"), indent=1)
+    json.dump(out, open(REV + "centerline_exposure.json", "w"), indent=1)

@@ -1,7 +1,7 @@
 """Empirical traffic occupancy: SBGR/SBSP flights (December 2022) whose tracks pass through each volume.
 
 Independent of how airport-flow envelopes are drawn: each flight's track (as selected by
-generate_approach_surfaces_fr24.R) is densified to <= 50 m and tested against the dashboard boxes
+tools/generate_approach_surfaces_fr24.R) is densified to <= 50 m and tested against the dashboard boxes
 (start-node width and height, centered, altitude interpolated). Volumes: cruise segments of the UAM
 networks (segments touching a vertiport or airport excluded), the REH reference (shared_reh_<stage>.csv),
 the same REH-reference pieces with one corridor lane's box at the REH altitude or at 4,000 ft, and the
@@ -25,9 +25,10 @@ import shapely
 from shapely.strtree import STRtree
 
 sys.stdout.reconfigure(encoding="utf-8")
-from paths import DATA, INPUTS, RESULTS, TRACKS  # noqa: E402  (see paths.py)
+from paths import AIRSPACE, ENVELOPES, INPUTS, RESULTS, TRACKS  # noqa: E402  (see paths.py)
 B = str(INPUTS) + "/"
-REPO = str(DATA) + "/"
+AIR = str(AIRSPACE) + "/"
+ENV_DIR = str(ENVELOPES) + "/"
 REV = str(RESULTS) + "/"
 TRACKS = sys.argv[1] if len(sys.argv) > 1 else str(TRACKS)
 HERE = os.path.join(REV, "occupancy")
@@ -142,7 +143,7 @@ for stage in ("6vp", "12vp"):
     volumes[f"base_REHalt_lane_{stage}"] = ref.assign(height=305.0, width=457.0)
     volumes[f"base_4000ft_lane_{stage}"] = ref.assign(height=305.0, width=457.0, altitude=1219.0)
 CASES_ALL = list(volumes)
-layers = {"REH": pd.read_csv(REPO + "nodes_edges_reh.csv"), "REA": pd.read_csv(REPO + "nodes_edges_rea.csv")}
+layers = {"REH": pd.read_csv(AIR + "nodes_edges_reh.csv"), "REA": pd.read_csv(AIR + "nodes_edges_rea.csv")}
 allbx = {case: boxes(df, True) for case, df in volumes.items()}
 allbx.update({k: boxes(df, False) for k, df in layers.items()})
 

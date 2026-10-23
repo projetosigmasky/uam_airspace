@@ -1,16 +1,16 @@
 #!/usr/bin/env Rscript
-# Tests of generate_approach_surfaces_fr24.R without licensed data. Usage: Rscript tests/test_envelopes.R
-#   1. The default (radial) output on synthetic tracks (tests/make_synthetic_fr24.R: straight-in
+# Tests of generate_approach_surfaces_fr24.R without licensed data. Usage: Rscript tests/envelopes/test_envelopes.R
+#   1. The default (radial) output on synthetic tracks (tests/envelopes/make_synthetic_fr24.R: straight-in
 #      finals at known lateral offsets after a downwind leg) must match
-#      tests/expected/synthetic_default_*.csv, and the removed along-axis options must be rejected.
-#   2. --stations=stream on synthetic streams (tests/make_synthetic_streams.R: straight-in and
+#      tests/envelopes/expected/synthetic_default_*.csv, and the removed along-axis options must be rejected.
+#   2. --stations=stream on synthetic streams (tests/envelopes/make_synthetic_streams.R: straight-in and
 #      circuit arrivals, straight-out and turning departures): each stream must be found, follow
 #      its known path and climb profile, span its P5-P95 lateral band and be smooth.
 # Requires R with dplyr. Exit status 0 when every check passes.
 script_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
-here <- if (length(script_arg)) dirname(normalizePath(sub("^--file=", "", script_arg))) else "tests"
-root <- normalizePath(file.path(here, ".."))
-generator <- file.path(root, "generate_approach_surfaces_fr24.R")
+here <- if (length(script_arg)) dirname(normalizePath(sub("^--file=", "", script_arg))) else file.path("tests", "envelopes")
+root <- normalizePath(file.path(here, "..", ".."))
+generator <- file.path(root, "tools", "generate_approach_surfaces_fr24.R")
 results <- logical()
 check <- function(name, ok, detail = "") {
   results[[length(results) + 1]] <<- isTRUE(ok)
@@ -18,7 +18,7 @@ check <- function(name, ok, detail = "") {
 }
 
 # ---------------------------------------------------------------- 1. radial envelopes
-cat("Radial envelopes (tests/make_synthetic_fr24.R)
+cat("Radial envelopes (tests/envelopes/make_synthetic_fr24.R)
 ")
 FT <- 0.3048
 rscript <- file.path(R.home("bin"), "Rscript")
@@ -32,7 +32,7 @@ for (f in c("approach_surfaces_SBGR.csv", "approach_surfaces_SBSP.csv", "approac
   a <- read.csv(out(f)); b <- read.csv(file.path(expected, paste0("synthetic_default_", f)))
   same <- identical(names(a), names(b)) && nrow(a) == nrow(b) &&
     all(mapply(function(u, v) if (is.numeric(u)) isTRUE(all.equal(u, v, tolerance = 1e-9)) else identical(as.character(u), as.character(v)), a, b))
-  check(sprintf("default (radial) output %s matches tests/expected", f), same)
+  check(sprintf("default (radial) output %s matches tests/envelopes/expected", f), same)
 }
 for (opt in list("--stations=axis", c("--lateral=traffic", "--align=30"))) {
   r <- run(shQuote(generator), shQuote(file.path(tmp, "in")), shQuote(file.path(tmp, "out")), opt)
@@ -41,7 +41,7 @@ for (opt in list("--stations=axis", c("--lateral=traffic", "--align=30"))) {
 }
 
 # ---------------------------------------------------------------- 2. stream envelopes
-cat("Stream envelopes (tests/make_synthetic_streams.R)\n")
+cat("Stream envelopes (tests/envelopes/make_synthetic_streams.R)\n")
 syn <- new.env(); sys.source(file.path(here, "make_synthetic_streams.R"), envir = syn)
 dir.create(file.path(tmp, "in_streams")); dir.create(file.path(tmp, "out_streams"))
 invisible(run(shQuote(file.path(here, "make_synthetic_streams.R")), shQuote(file.path(tmp, "in_streams"))))
