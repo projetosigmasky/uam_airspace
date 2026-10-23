@@ -14,7 +14,7 @@
 </head>
 <body>
 <h1>Dashboard core tests</h1>
-<p>Unit tests of the pure functions in <code>index.html</code> (overlap analysis and parallel-route geometry),
+<p>Unit tests of the dashboard's pure functions (<code>js/overlap-analysis.js</code> and <code>js/route-geometry.js</code>),
 run on small synthetic routes. Serve the repository root over HTTP (e.g. <code>python -m http.server</code>)
 and open <code>/tests/core_tests.html</code>, or run <code>python tests/run_browser_tests.py</code>.</p>
 <p id="summary">Running…</p>
@@ -25,11 +25,9 @@ and open <code>/tests/core_tests.html</code>, or run <code>python tests/run_brow
     const check = (name, ok, detail = '') => results.push({ name, ok: Boolean(ok), detail: String(detail) });
     const close = (a, b, tol) => Math.abs(a - b) <= tol;
 
-    // Load the two pure script blocks of the dashboard
-    const html = await (await fetch('../index.html', { cache: 'no-store' })).text();
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    const code = ['overlap-analysis-core', 'route-geometry-core']
-        .map(id => doc.getElementById(id).textContent).join('\n');
+    // Load the two pure scripts of the dashboard, isolated from this page's scope
+    const code = (await Promise.all(['../js/overlap-analysis.js', '../js/route-geometry.js']
+        .map(async src => (await fetch(src, { cache: 'no-store' })).text()))).join('\n');
     const { OverlapAnalysis, offsetWaypointsHorizontally } =
         new Function(code + '\nreturn { OverlapAnalysis, offsetWaypointsHorizontally };')();
 

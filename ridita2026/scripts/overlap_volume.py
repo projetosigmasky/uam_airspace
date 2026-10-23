@@ -1,6 +1,6 @@
 """Volumetric overlap between the UAM corridor network and REH, REA and airport-flow envelopes.
 
-Reference implementation of the dashboard's Overlap Analysis (index.html, OverlapAnalysis block).
+Reference implementation of the dashboard's Overlap Analysis (js/overlap-analysis.js).
 Volumes are the boxes drawn in the 3D view: each segment has the width and height of its start
 waypoint (zero values fall back to 457 m / 305 m, as on import), is centered on the segment and its
 altitude is interpolated along it.
