@@ -1,8 +1,8 @@
-// UAM Airspace Dashboard: Parallel-route geometry (pure functions, no DOM access; tested in tests/core_tests.html).
+// UAM Airspace Dashboard: Parallel-route geometry (pure functions, no DOM access; tested in tests/dashboard/core_tests.html).
 // Classic script sharing one global scope with the others; load order is set in index.html.
 
 // Route geometry used when generating parallel routes: pure functions without DOM access,
-// so they can be tested on their own (tests/core_tests.html).
+// so they can be tested on their own (tests/dashboard/core_tests.html).
 // Offset a route sideways by offsetMeters (positive: to the left of the direction of
 // travel), keeping its first and last waypoints fixed. Interior waypoints move to the
 // intersection of the two adjacent offset edges (miter); where those edges are collinear

@@ -3,6 +3,9 @@
 Convert nodes and edges from XML files (REA and REH) to CSV format.
 Extracts geometry from polygons by creating a centerline from averaged polygon sides.
 This is the preferred converter for the dashboard CSV format.
+
+Usage: python tools/convert_xml_to_csv.py
+Reads data/airspace/xml/ and writes data/airspace/nodes_edges_{reh,rea,combined}.csv.
 """
 
 import xml.etree.ElementTree as ET
@@ -372,9 +375,9 @@ def apply_altitude_and_height_fallback(routes, waypoint_altitude_map, mean_altit
 
 
 def main():
-    base_path = Path(__file__).resolve().parent
-    xml_path = base_path / 'data' / 'xml'
-    output_path = base_path / 'data'
+    base_path = Path(__file__).resolve().parents[1]   # repository root
+    xml_path = base_path / 'data' / 'airspace' / 'xml'
+    output_path = base_path / 'data' / 'airspace'
     output_path.mkdir(parents=True, exist_ok=True)
     
     files_to_process = [

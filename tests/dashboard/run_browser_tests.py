@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Run the dashboard tests in headless Chrome (or Edge/Chromium).
 
-1. tests/core_tests.html: unit tests of the pure functions (overlap analysis, parallel-route geometry).
+1. tests/dashboard/core_tests.html: unit tests of the pure functions (overlap analysis, parallel-route geometry).
 2. UI tests through index.html, as a user would load files:
    - loader: files that reuse route names are all kept, each route in its own layer
-     (data/nodes_edges_reh.csv and data/nodes_edges_rea.csv share "Portão Cabreúva";
+     (data/airspace/nodes_edges_reh.csv and data/airspace/nodes_edges_rea.csv share "Portão Cabreúva";
      fixtures/scenario_a.csv and scenario_b.csv share every route name);
    - export: same-named routes of different layers are not merged when the file is reloaded;
    - CSV text in HTML: names containing markup (fixtures/html_in_names.csv; the markup only sets
@@ -14,7 +14,7 @@
 
 Requirements: Python 3.8+, `pip install websocket-client`, and Chrome, Edge or Chromium (set
 CHROME_PATH if it is not found). Usage, from anywhere:
-    python tests/run_browser_tests.py
+    python tests/dashboard/run_browser_tests.py
 Exit status 0 when every test passes.
 """
 import http.server
@@ -34,8 +34,8 @@ from pathlib import Path
 
 import websocket
 
-ROOT = Path(__file__).resolve().parent.parent
-FIX = ROOT / "tests" / "fixtures"
+ROOT = Path(__file__).resolve().parents[2]
+FIX = Path(__file__).resolve().parent / "fixtures"
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -131,8 +131,8 @@ def ui_page(cdp_port, base):
 
 
 def run(cdp_port, base):
-    print("Core tests (tests/core_tests.html)")
-    p = Page(cdp_port, base + "tests/core_tests.html")
+    print("Core tests (tests/dashboard/core_tests.html)")
+    p = Page(cdp_port, base + "tests/dashboard/core_tests.html")
     p.wait("Array.isArray(window.__testResults)", timeout=120)
     for r in p.js("window.__testResults"):
         check(r["name"], r["ok"], r["detail"])
@@ -140,8 +140,8 @@ def run(cdp_port, base):
 
     print("Loader and export")
     p = ui_page(cdp_port, base)
-    p.upload(ROOT / "data" / "nodes_edges_reh.csv")
-    p.upload(ROOT / "data" / "nodes_edges_rea.csv")
+    p.upload(ROOT / "data" / "airspace" / "nodes_edges_reh.csv")
+    p.upload(ROOT / "data" / "airspace" / "nodes_edges_rea.csv")
     layers = p.js("JSON.stringify(state.routes.filter(r => r.name === 'Portão Cabreúva').map(r => r.layerId))")
     layers = json.loads(layers)
     check("REH and REA files both keep their 'Portão Cabreúva' route", len(layers) == 2 and len(set(layers)) == 2,

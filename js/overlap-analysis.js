@@ -1,4 +1,4 @@
-// UAM Airspace Dashboard: Volumetric overlap analysis engine (pure functions, no DOM access; tested in tests/core_tests.html).
+// UAM Airspace Dashboard: Volumetric overlap analysis engine (pure functions, no DOM access; tested in tests/dashboard/core_tests.html).
 // Classic script sharing one global scope with the others; load order is set in index.html.
 
 // Volumetric overlap analysis: pure functions without DOM access, so it can be tested on its own.

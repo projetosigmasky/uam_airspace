@@ -20,7 +20,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SCRIPTS = HERE / "scripts"
-DATA = HERE.parent / "data"
+ENVELOPES = HERE.parent / "data" / "envelopes"
 RESULTS = Path(os.environ.get("RIDITA_RESULTS", HERE / "results"))
 INPUTS = Path(os.environ.get("RIDITA_INPUTS", HERE / "inputs"))
 TRACKS = Path(os.environ.get("RIDITA_TRACKS", INPUTS / "tracks_sbgr_sbsp_2022-12.csv.gz"))
@@ -41,8 +41,8 @@ if not (INPUTS / "scenarios").is_dir() or not (INPUTS / "new_scenario").is_dir()
     sys.exit(f"Scenario files not found in {INPUTS}: set RIDITA_INPUTS (see ridita2026/README.md).")
 run("overlap_volume.py", "--json", stdout=RESULTS / "overlap_volume.json")
 run("overlap_volume.py", "--json", results=RESULTS / "stream", stdout=RESULTS / "stream" / "overlap_volume_stream.json",
-    extra_env={"ENV_SBGR_CSV": str(DATA / "approach_surfaces_SBGR_stream.csv"),
-               "ENV_SBSP_CSV": str(DATA / "approach_surfaces_SBSP_stream.csv")})
+    extra_env={"ENV_SBGR_CSV": str(ENVELOPES / "approach_surfaces_SBGR_stream.csv"),
+               "ENV_SBSP_CSV": str(ENVELOPES / "approach_surfaces_SBSP_stream.csv")})
 run("stream_attribution.py", results=RESULTS / "stream")
 run("centerline_exposure.py")
 run("shared_reh_check.py", stdout=RESULTS / "shared_reh_check.txt")

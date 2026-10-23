@@ -15,19 +15,20 @@ from shapely.strtree import STRtree
 from pyproj import Transformer
 
 sys.stdout.reconfigure(encoding="utf-8")
-from paths import DATA, INPUTS, RESULTS, TRACKS  # noqa: E402  (see paths.py)
+from paths import AIRSPACE, ENVELOPES, INPUTS, RESULTS, TRACKS  # noqa: E402  (see paths.py)
 B = str(INPUTS) + "/"
-REPO = str(DATA) + "/"
+AIR = str(AIRSPACE) + "/"
+ENV_DIR = str(ENVELOPES) + "/"
 REV = str(RESULTS) + "/"
 spec = importlib.util.spec_from_file_location("ov", str(Path(__file__).with_name("overlap_volume.py")))
 ov = importlib.util.module_from_spec(spec); spec.loader.exec_module(ov)
 FT = 0.3048
 ARP = {"SBSP": (-23.6261, -46.6564), "SBGR": (-23.4356, -46.4731)}
 
-reh = pd.read_csv(REPO + "nodes_edges_reh.csv")
-rea = pd.read_csv(REPO + "nodes_edges_rea.csv")
-env = {"ENV_SBGR": pd.read_csv(REPO + "approach_surfaces_SBGR.csv"),
-       "ENV_SBSP": pd.read_csv(REPO + "approach_surfaces_SBSP.csv")}
+reh = pd.read_csv(AIR + "nodes_edges_reh.csv")
+rea = pd.read_csv(AIR + "nodes_edges_rea.csv")
+env = {"ENV_SBGR": pd.read_csv(ENV_DIR + "approach_surfaces_SBGR.csv"),
+       "ENV_SBSP": pd.read_csv(ENV_DIR + "approach_surfaces_SBSP.csv")}
 tr = Transformer.from_crs("EPSG:4326", "EPSG:31983", always_xy=True)
 
 

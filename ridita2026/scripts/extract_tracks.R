@@ -1,4 +1,4 @@
-# Extract the SBGR/SBSP arrival and departure track samples exactly as generate_approach_surfaces_fr24.R
+# Extract the SBGR/SBSP arrival and departure track samples exactly as tools/generate_approach_surfaces_fr24.R
 # selects them (same filters and ground trimming), for a local traffic-occupancy check.
 # Output stays local (licensed Flightradar24 data): tracks.csv.gz with indicat, icao, flow, time, lat, lon, alt_msl_m.
 suppressMessages(library(dplyr))

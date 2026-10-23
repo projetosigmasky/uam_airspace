@@ -2,7 +2,7 @@
 # Empirical approach/departure envelopes for SBGR and SBSP from Flightradar24 tracks
 # ==================================================================================
 # Usage:
-#   Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]
+#   Rscript tools/generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]
 #
 # The default (--stations=radial) reproduces the published envelopes, one per side of the
 # airport. --stations=stream builds one envelope per direction-resolved traffic stream instead
@@ -51,7 +51,7 @@
 #   S4. Each cross-section is bounded by the smoothed P5 and P95 altitudes and spans the smoothed
 #       P5-P95 lateral band, centered on the stream.
 #
-# Outputs in <out_dir> (default: data/ next to this script):
+# Outputs in <out_dir> (default: data/envelopes/ in this repository):
 #   approach_surfaces_<ICAO>.csv     dashboard route files (route, id, name, lat, lon, type,
 #                                    altitude, height, width; meters). One route per side (one
 #                                    per stream with --stations=stream, e.g. ARR17_S1); altitude
@@ -74,11 +74,11 @@ if (length(unknown)) stop(sprintf("Unknown option(s): %s (the along-axis options
                                   paste(unknown, collapse = ", ")))
 STATIONS <- opt_value("stations", "radial", c("radial", "stream"))
 args <- all_args[!grepl("^--", all_args)]
-if (length(args) < 1) stop("Usage: Rscript generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]")
+if (length(args) < 1) stop("Usage: Rscript tools/generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]")
 FR24_DIR <- args[1]
 script_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 script_dir <- if (length(script_arg)) dirname(normalizePath(sub("^--file=", "", script_arg))) else getwd()
-OUT_DIR <- if (length(args) >= 2) args[2] else file.path(script_dir, "data")
+OUT_DIR <- if (length(args) >= 2) args[2] else file.path(dirname(script_dir), "data", "envelopes")
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 SUFFIX <- if (STATIONS == "stream") "_stream" else ""
 cat(if (STATIONS == "stream") "Stations: along the mean path of each direction-resolved stream\n" else
