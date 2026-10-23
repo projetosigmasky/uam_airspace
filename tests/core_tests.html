@@ -52,19 +52,19 @@ and open <code>/tests/core_tests.html</code>, or run <code>python tests/run_brow
 
     // The raster counts whole cells whose center lies in the footprint: a 457-m width becomes
     // 10 rows of 50 m (500 m) for this east-west segment, so the error is up to one row of cells
-    let s = OverlapAnalysis.analyse([uam], [], { cellSize: 10 });
+    let s = OverlapAnalysis.analyze([uam], [], { cellSize: 10 });
     check('volume of one segment = length x width x height (10-m raster, within 1%)',
         close(s.volume, boxVolume, 0.01 * boxVolume), `${(s.volume / KM3).toFixed(4)} vs ${(boxVolume / KM3).toFixed(4)} km³`);
-    s = OverlapAnalysis.analyse([uam], []);
+    s = OverlapAnalysis.analyze([uam], []);
     check('volume with the default 50-m raster is within one row of cells',
         close(s.volume, boxVolume, L * 50 * H), `${(s.volume / KM3).toFixed(4)} vs ${(boxVolume / KM3).toFixed(4)} km³ (${(100 * (s.volume / boxVolume - 1)).toFixed(1)}%)`);
     const v1 = s.volume;
 
-    s = OverlapAnalysis.analyse([uam, route('U2', uam.waypoints.map(p => ({ ...p })))], []);
+    s = OverlapAnalysis.analyze([uam, route('U2', uam.waypoints.map(p => ({ ...p })))], []);
     check('two routes on the same waypoint segment count once (volume and segment count)',
         s.volume === v1 && s.nCruise === 1, `volume ratio ${(s.volume / v1).toFixed(6)}, ${s.nCruise} segment(s)`);
 
-    s = OverlapAnalysis.analyse([uam], [layer('BIG', [route('O', [wp('o1', -500, 0, 1219, { width: 2000, height: 1000 }),
+    s = OverlapAnalysis.analyze([uam], [layer('BIG', [route('O', [wp('o1', -500, 0, 1219, { width: 2000, height: 1000 }),
         wp('o2', L + 500, 0, 1219, { width: 2000, height: 1000 })])])]);
     check('an obstacle containing the corridor overlaps 100%', close(all(s).pct, 100, 1e-9), `${all(s).pct.toFixed(3)}%`);
 
@@ -72,13 +72,13 @@ and open <code>/tests/core_tests.html</code>, or run <code>python tests/run_brow
     // 1,150-1,250 m along the whole segment. Overlap averages 25 m of the 100-m band: 25%.
     const climb = route('C', [wp('c1', 0, 0, 1000, { height: 100 }), wp('c2', L, 0, 1400, { height: 100 })]);
     const band = route('O', [wp('o1', -500, 0, 1200, { width: 2000, height: 100 }), wp('o2', L + 500, 0, 1200, { width: 2000, height: 100 })]);
-    s = OverlapAnalysis.analyse([climb], [layer('BAND', [band])]);
+    s = OverlapAnalysis.analyze([climb], [layer('BAND', [band])]);
     check('altitude is interpolated along the segment (expected 25%, within 1 point)', close(all(s).pct, 25, 1), `${all(s).pct.toFixed(2)}%`);
 
     // orientation: parallel obstacle P above, perpendicular obstacle X below, in the same cells
     const P = (lo, hi) => route('P', [wp('p1', 0, 0, (lo + hi) / 2, { height: hi - lo }), wp('p2', L, 0, (lo + hi) / 2, { height: hi - lo })]);
     const X = (lo, hi) => route('X', [wp('x1', L / 2, -1000, (lo + hi) / 2, { height: hi - lo }), wp('x2', L / 2, 1000, (lo + hi) / 2, { height: hi - lo })]);
-    const run = obs => all(OverlapAnalysis.analyse([uam], [layer('OBS', obs)]));
+    const run = obs => all(OverlapAnalysis.analyze([uam], [layer('OBS', obs)]));
     const r1 = run([P(1300, 1500)]), r2 = run([X(900, 1100)]), r3 = run([P(1300, 1500), X(900, 1100)]);
     check('parallel-only overlap is 100% parallel, crossing-only 0%', r1.parallelPct === 100 && r2.parallelPct === 0,
         `${r1.parallelPct.toFixed(1)}%, ${r2.parallelPct.toFixed(1)}%`);
@@ -94,14 +94,14 @@ and open <code>/tests/core_tests.html</code>, or run <code>python tests/run_brow
     // terminal segments: a segment touching a vertiport is an approach segment, reported apart
     const withVp = route('T', [wp('V', -L, 0, 760, { type: 'Vertiport' }), wp('A', 0, 0, 1219), wp('B', L, 0, 1219)]);
     const overApproach = route('O', [wp('o1', -L, 0, 1000, { width: 1000, height: 1000 }), wp('o2', -200, 0, 1000, { width: 1000, height: 1000 })]);
-    s = OverlapAnalysis.analyse([withVp], [layer('OBS', [overApproach])]);
+    s = OverlapAnalysis.analyze([withVp], [layer('OBS', [overApproach])]);
     check('approach segments are separated from cruise segments', s.nCruise === 1 && s.nApproach === 1 && all(s).overlap === 0 && s.approachPct > 0,
         `${s.nCruise} cruise, ${s.nApproach} approach, cruise overlap ${all(s).overlap}, approach ${s.approachPct.toFixed(1)}%`);
 
     // axis-altitude slab: footprint share, not centerline length. Obstacle axis 300 m north of the
     // corridor axis covers 71.5-228.5 m of the corridor width (34.4%) but never the centerline.
     const side = route('S', [wp('s1', 0, 300, 1250, { height: 300 }), wp('s2', L, 300, 1250, { height: 300 })]);
-    s = OverlapAnalysis.analyse([uam], [layer('SIDE', [side])]);
+    s = OverlapAnalysis.analyze([uam], [layer('SIDE', [side])]);
     const slab = s.sweep.find(x => x.heightFt === 0).pct;
     check('height sweep at 0 ft is a footprint share at the axis altitude (34.4% within one 50-m row; centerline inside: 0%)',
         close(slab, 34.4, 100 * 50 / W), `${slab.toFixed(1)}%`);

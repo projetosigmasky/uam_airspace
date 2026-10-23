@@ -1417,7 +1417,7 @@
                 };
             }
 
-            function analyse(subjectRoutes, obstacleLayers, options = {}) {
+            function analyze(subjectRoutes, obstacleLayers, options = {}) {
                 const prep = prepare(subjectRoutes, obstacleLayers, options);
                 const main = evaluate(prep, prep.opts.heightFt);
                 main.sweep = SWEEP_HEIGHTS_FT.map(h => {
@@ -1429,23 +1429,23 @@
                 return main;
             }
 
-            return { analyse, prepare, evaluate, FT, NM, DEFAULTS, SHARE_THRESHOLDS, ALL_LAYERS };
+            return { analyze, prepare, evaluate, FT, NM, DEFAULTS, SHARE_THRESHOLDS, ALL_LAYERS };
         })();
     </script>
 
     <script id="route-geometry-core">
         // Route geometry used when generating parallel routes: pure functions without DOM access,
         // so they can be tested on their own (tests/core_tests.html).
-        // Offset a route sideways by offsetMetres (positive: to the left of the direction of
+        // Offset a route sideways by offsetMeters (positive: to the left of the direction of
         // travel), keeping its first and last waypoints fixed. Interior waypoints move to the
-        // intersection of the two adjacent offset edges (mitre); where those edges are collinear
+        // intersection of the two adjacent offset edges (miter); where those edges are collinear
         // the waypoint moves perpendicular to them, so every input waypoint has one output
         // waypoint with its own attributes. A two-waypoint route gets one extra point, the offset
         // end of its edge, before the fixed end. Distances are meters in a local plane with the
         // same meters-per-degree as the overlap analysis.
-        function offsetWaypointsHorizontally(waypoints, offsetMetres) {
+        function offsetWaypointsHorizontally(waypoints, offsetMeters) {
             const n = waypoints.length;
-            if (n < 2 || !offsetMetres) return waypoints.map(wp => ({ ...wp }));
+            if (n < 2 || !offsetMeters) return waypoints.map(wp => ({ ...wp }));
             const lat0 = waypoints[0].lat, lon0 = waypoints[0].lon;
             const phi = (waypoints.reduce((sum, wp) => sum + wp.lat, 0) / n) * Math.PI / 180;
             const mLat = 111132.92 - 559.82 * Math.cos(2 * phi) + 1.175 * Math.cos(4 * phi);
@@ -1466,7 +1466,7 @@
                 const end = waypoints[1];
                 return [{ ...waypoints[0] },
                         toWaypoint({ ...end, name: `${end.name || 'WP 2'} offset`, type: 'Waypoint' },
-                                   pts[1].x + offsetMetres * nl.x, pts[1].y + offsetMetres * nl.y),
+                                   pts[1].x + offsetMeters * nl.x, pts[1].y + offsetMeters * nl.y),
                         { ...end }];
             }
             return waypoints.map((wp, i) => {
@@ -1479,7 +1479,7 @@
                 const na = leftOf(a), nb = leftOf(b);
                 const c = 1 + a.x * b.x + a.y * b.y;   // 1 + cos(turn); 0 for a full reversal
                 const m = c > 1e-6 ? { x: (na.x + nb.x) / c, y: (na.y + nb.y) / c } : na;
-                return toWaypoint(wp, pts[i].x + offsetMetres * m.x, pts[i].y + offsetMetres * m.y);
+                return toWaypoint(wp, pts[i].x + offsetMeters * m.x, pts[i].y + offsetMeters * m.y);
             });
         }
     </script>
@@ -3933,7 +3933,7 @@
                 routes: state.routes.filter(route => route.layerId === id)
             }));
             const started = performance.now();
-            const summary = OverlapAnalysis.analyse(state.routes.filter(route => route.layerId === subjectId), obstacleLayers, readOverlapOptions());
+            const summary = OverlapAnalysis.analyze(state.routes.filter(route => route.layerId === subjectId), obstacleLayers, readOverlapOptions());
             overlapState = { ...overlapState, summary, subjectName: layerNameById(subjectId), elapsed: performance.now() - started };
             renderOverlapResults();
             updateOverlapStatistics();

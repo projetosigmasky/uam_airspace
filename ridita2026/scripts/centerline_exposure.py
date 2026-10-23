@@ -10,7 +10,7 @@ Paths evaluated (cruise segments only; segments touching a vertiport or airport 
   lanes, initial / refined  the generated lane centerlines of the scenario files
   base path @ 4,000 ft      the original undisplaced pair paths at the 4,000-ft corridor axis
   base path @ REH (REH reference)  the same paths at the altitude of the nearest REH segment
-Geometry uses the dashboard's local projection (centered on each path set). Writes centreline_exposure.json.
+Geometry uses the dashboard's local projection (centered on each path set). Writes centerline_exposure.json.
 """
 import json
 import math
@@ -161,4 +161,4 @@ if __name__ == "__main__":
         out[stage] = res
         print(f"\n{stage}: centerline length inside each layer (% of cruise centerline length)")
         print(pd.DataFrame(res).T.round(2).to_string())
-    json.dump(out, open(REV + "centreline_exposure.json", "w"), indent=1)
+    json.dump(out, open(REV + "centerline_exposure.json", "w"), indent=1)

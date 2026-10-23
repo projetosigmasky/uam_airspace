@@ -243,7 +243,7 @@ claim("3.1", "SBSP segments 2.9-6.9 NM north-west", "2.9-6.9 NM, NW", f"{s.r.min
       round(s.r.min(), 1) == 2.9 and round(s.r.max(), 1) == 6.9 and s.b.min() > 270)
 
 # ---------------------------------------------------------------- centerline, stream variant, traffic counts
-ce = json.load(open(REV + "centreline_exposure.json", encoding="utf-8"))
+ce = json.load(open(REV + "centerline_exposure.json", encoding="utf-8"))
 cc = (ce["6vp"]["lanes_initial"]["ENV_SBSP"], ce["6vp"]["lanes_refined"]["ENV_SBSP"], ce["6vp"]["base_REH"]["ENV_SBSP"],
       ce["12vp"]["lanes_initial"]["ENV_SBSP"], ce["12vp"]["lanes_refined"]["ENV_SBSP"], ce["12vp"]["base_REH"]["ENV_SBSP"])
 claim("T2/3.2/abs", "centerline in SBSP: 11.7->11.3 (2.8) | 16.1->15.5 (1.9)", "(11.7, 11.3, 2.8, 16.1, 15.5, 1.9)",

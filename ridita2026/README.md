@@ -37,7 +37,7 @@ The corridor lanes were generated with a dashboard version older than this repos
 - Other layers, in this order: `REH`, `REA`, `ENV_SBGR`, `ENV_SBSP` (radial envelopes unless stated; the stream envelopes for the sensitivity, with `stream_attribution.py` splitting the SBSP share by stream).
 - 50-m cells; per cell, altitude intervals are merged per layer; parallel part = overlap inside segment–obstacle pairs within 30°, intersected pair by pair.
 - Height sweep 1,000 / 800 / 600 / 400 / 200 ft and a 1-m slab at the axis altitude (a footprint share, not a centerline length).
-- Centerline exposure: centerline sampled every 10 m against the same boxes (`centreline_exposure.py`).
+- Centerline exposure: centerline sampled every 10 m against the same boxes (`centerline_exposure.py`).
 - REH reference: base paths cut into 100-m pieces, each with the altitude, height and width of the nearest REH segment (`shared_reh_check.py`).
 - Traffic counts (`occupancy.py`): Flightradar24 tracks of the flights selected by `generate_approach_surfaces_fr24.R`, densified to ≤ 50 m; a flight counts once for a volume set (and once for a segment) if a point lies inside a box and its first point inside falls on 1–31 December 2022, local time; per-day values divide by 31. These are geometric exposures of observed tracks, not conflicts or losses of separation.
 

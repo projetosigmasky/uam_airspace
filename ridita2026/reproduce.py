@@ -8,7 +8,7 @@ Steps (outputs in RIDITA_RESULTS, default ridita2026/results/):
   1. overlap_volume.py          volumetric overlap, height sweep, per-segment shares (Table 2, 3.1, 3.2)
   2. overlap_volume.py          the same against the stream envelopes (abstract, Table 2, 3.2 sensitivity)
   3. stream_attribution.py      the SBSP stream share by stream (3.2)
-  4. centreline_exposure.py     centerline length inside the envelopes (Table 2, 3.2, abstract)
+  4. centerline_exposure.py     centerline length inside the envelopes (Table 2, 3.2, abstract)
   5. shared_reh_check.py        REH reference and REH/REA inside the envelopes (2.4, 3.2)
   6. occupancy.py               Flightradar24 flights through each volume (needs RIDITA_TRACKS; licensed)
   7. verify_paper.py            every quantitative claim of the paper: OK or CHECK
@@ -44,7 +44,7 @@ run("overlap_volume.py", "--json", results=RESULTS / "stream", stdout=RESULTS / 
     extra_env={"ENV_SBGR_CSV": str(DATA / "approach_surfaces_SBGR_stream.csv"),
                "ENV_SBSP_CSV": str(DATA / "approach_surfaces_SBSP_stream.csv")})
 run("stream_attribution.py", results=RESULTS / "stream")
-run("centreline_exposure.py")
+run("centerline_exposure.py")
 run("shared_reh_check.py", stdout=RESULTS / "shared_reh_check.txt")
 if TRACKS.exists():
     run("occupancy.py", str(TRACKS))
