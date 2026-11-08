@@ -48,8 +48,20 @@ pip install numpy pandas shapely
 RIDITA_INPUTS=/path/to/scenario/folder python ridita2026/reproduce.py
 ```
 
-Optional, with the licensed tracks: `Rscript ridita2026/scripts/extract_tracks.R <folder with the daily .Rda files> tracks.csv.gz`, then set `RIDITA_TRACKS=tracks.csv.gz` before `reproduce.py`. Results go to `ridita2026/results/` (or `RIDITA_RESULTS`); `verify_paper.txt` lists every quantitative claim of the paper with `OK`, `CHECK` or `SKIP` (traffic counts without the tracks). `scripts/thin_envelope_convergence.py` repeats the stream SBSP overlap at 50, 25, 10 and 5-m cells (`ENV_SBSP_CSV` selects another envelope).
+Optional, with the licensed tracks: `Rscript ridita2026/scripts/extract_tracks.R <folder with the daily .Rda files> tracks.csv.gz` (pressure altitudes, as in the paper; `--qnh=data/envelopes/metar_qnh_2022-12.csv` converts them to altitudes above mean sea level), then set `RIDITA_TRACKS=tracks.csv.gz` before `reproduce.py`. Results go to `ridita2026/results/` (or `RIDITA_RESULTS`); `verify_paper.txt` lists every quantitative claim of the paper with `OK`, `CHECK` or `SKIP` (traffic counts without the tracks). `scripts/thin_envelope_convergence.py` repeats the stream SBSP overlap at 50, 25, 10 and 5-m cells (`ENV_SBSP_CSV` selects another envelope).
 
 ## Expected results
 
-`expected_results.csv` is `verify_paper.csv` from a full run (with the licensed tracks): each quantitative claim of the manuscript, the recomputed value and the status: `OK` for all 49 checked claims, plus two `INFO` lines that are not claims of the paper. The manuscript was amended on 20 October 2026 after the final checks: the traffic counts are 176 and 262 movements a day (130 on the busiest segment) counting only flights that pass through during December; and, from release `ridita-2026.1` on, its alternative envelope is the stream (direction-resolved) one instead of the along-axis one, which mixes the traffic streams that share a side of the airport. With the stream envelopes the SBSP share is 2.1 → 2.0% (six vertiports) and 2.5 → 2.5% (twelve), almost all in departure streams (arrival streams: 0.02%). `scripts/thin_envelope_convergence.py` confirms it at finer cells: 2.002% (six vertiports) and 2.497% (twelve) at 5 m in both raster orientations. (For the along-axis envelope, the alternative of release `ridita-2026`, the same check gave 0.0105% and 1.221%.)
+`expected_results.csv` is `verify_paper.csv` from a full run of this release with the licensed tracks. It lists each quantitative claim of the manuscript, the value recomputed with this release, and a status:
+
+- `OK` (41 claims): the recomputed value matches the paper as printed.
+- `CHECK` (7) and `NOTE` (1): differences caused by the track quality control corrected in release `ridita-2026.5` (see *Changes affecting earlier results* in the main README). The paper's values were made with release `ridita-2026.2`.
+  - Radial overlap, footprint and centerline shares change by at most 0.04 percentage points, which changes some rounded values (e.g. SBSP 16.47% → 16.45% for twelve vertiports, initial corridors).
+  - SBSP movements a day through the corridors go from 176 to 175 (175.6 → 175.5), and in one lane's box at REH altitudes from 1.0 to 0.9.
+  - The stream SBSP share goes from 2.0% to 1.6% (six vertiports) and from 2.5% to 2.2% (twelve), still almost all in departure streams. The runway 17 departure stream no longer includes taxi paths.
+  - `NOTE`: 50 flights whose only ground sample was a synthetic boundary point are no longer counted (SBGR 20,328 → 20,291; SBSP 13,064 → 13,051).
+- `INFO` (2): lines that are not claims of the paper.
+
+Release `ridita-2026.2` reproduces the paper's values exactly; use the README inside that release.
+
+`scripts/thin_envelope_convergence.py` confirms the stream SBSP share at finer cells. At 5 m both raster orientations give 1.580% (six vertiports) and 2.192% (twelve); the stream envelopes of releases `ridita-2026.1` to `ridita-2026.4` gave 2.002% and 2.497%.
