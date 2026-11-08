@@ -57,10 +57,12 @@ js/                             dashboard scripts (see Development)
   main.js                       event wiring and start-up
 data/
   airspace/                     REH and REA route files, and their GeoAISWEB XML sources (xml/)
-  envelopes/                    airport-flow envelopes for SBGR and SBSP (radial and _stream)
+  envelopes/                    airport-flow envelopes for SBGR and SBSP (radial and _stream), their
+                                quality-control counts (_qc) and the December 2022 METAR QNH table
 tools/
   convert_xml_to_csv.py         GeoAISWEB XML -> data/airspace CSV files
   generate_approach_surfaces_fr24.R   Flightradar24 tracks -> data/envelopes CSV files
+  fr24_tracks.R                 Flightradar24 track selection and quality control (shared)
 tests/
   dashboard/                    browser tests (core functions and UI) and their fixtures
   envelopes/                    envelope-script tests, synthetic track generators, expected outputs
@@ -80,24 +82,40 @@ CITATION.cff                    how to cite this software
 
 ```
 Rscript tools/generate_approach_surfaces_fr24.R <folder with daily .Rda files> [output folder, default data/envelopes/]
-                                                [--stations=radial|stream]
+                                                [--stations=radial|stream] [--qnh=data/envelopes/metar_qnh_2022-12.csv]
 ```
 
-- **Input**: one `.Rda` file per day with a data frame `df` of track samples (flight id, time, phase, position, barometric altitude in ft, heading, planned origin and destination). The expected columns are listed in the script header. Requires R with `dplyr`.
-- **Common steps**: final-approach, initial-climb and ground samples within 0.3° of each airport are kept. The runway direction comes from the touchdown or lift-off heading, with parallel runways grouped. Lower and upper limits are the smoothed 5th and 95th altitude percentiles.
+- **Input**: one `.Rda` file per day with a data frame `df` of track samples (flight id, time, phase, position, pressure altitude in ft, heading, planned origin and destination). The expected columns are listed in the script header. Requires R with `dplyr`.
+- **Track selection and quality control** (`tools/fr24_tracks.R`, shared with the traffic-count extract in `ridita2026/`):
+  - Final-approach, initial-climb and ground samples within 0.3° of each airport are kept, and exact copies (the daily files overlap in time) are kept once.
+  - *Synthetic phase-boundary points are removed.* The source data contain one per flight, where it crosses 1 NM from the airport, stored under both phases. Their altitude is interpolated between the adjacent samples, so next to a ground sample (altitude 0) it lies hundreds of feet below the runway. In December 2022 there were 20,985 at SBGR (2,971 more than 300 ft below the field) and 13,661 at SBSP.
+  - Arrivals end at touchdown (first zero altitude) and departures start at lift-off (last zero altitude); the heading there gives the runway direction, with parallel runways grouped.
+  - Airborne samples more than 300 ft below the field elevation are removed as implausible (4 in December 2022).
+  - The counts of each step are written to `approach_surfaces_qc.csv`.
+- **Altitude basis**: Flightradar24 altitudes are pressure altitudes (standard setting, 1013.25 hPa). The files in `data/envelopes/` keep them as reported, as in the RIDITA 2026 paper; ground samples take the field elevation (2,461 ft at SBGR, 2,631 ft at SBSP). With `--qnh`, airborne altitudes are converted to altitudes above mean sea level with the airport's METAR QNH nearest in time. `data/envelopes/metar_qnh_2022-12.csv` holds the December 2022 METARs (Iowa Environmental Mesonet archive); QNH ranged 1006–1021 hPa, with a median of 1015 hPa.
+  - In December 2022 the conversion raises the lower limits by about 25–110 ft (median per side).
+  - For the RIDITA 2026 refined corridors (six vertiports) it would change these results:
+
+    | Result | Pressure altitudes | QNH altitudes |
+    |---|---|---|
+    | Corridor volume inside the radial SBSP envelope | 14.0% | 12.0% |
+    | Inside any volume | 18.2% | 16.3% |
+    | REH reference: centerline in the SBSP envelope | 2.8% | 0.3% |
+    | SBSP movements a day through the corridors | 175 | 170 |
+- **Envelope limits**: lower and upper limits are the smoothed 5th and 95th altitude percentiles.
 - **Stored geometry**: altitude is the mid-point of the 5th–95th percentile band and height its thickness, because the dashboard centers volumes on the stored altitude.
 - **Radial method** (default; the published envelopes, `approach_surfaces_SBGR.csv`, `approach_surfaces_SBSP.csv` and the stations and summary files):
   - *Stations*: every 0.1 NM of radial distance from the airport reference point, up to 10 NM, on each side of the airport, keeping each flight's nearest sample.
   - *Cross-sections*: centered on the extended runway axis and twice the smoothed 95th percentile of the absolute lateral deviation wide.
   - *Behavior*: turning, base and departure-turn traffic widens the cross-sections (up to 16–20 NM at 10 NM), while the lowest, near-axis traffic sets the floor across that whole width, so the envelope is a conservative fan.
-  - *December 2022*: 20,328 SBGR and 13,064 SBSP flights; four sides × 101 stations, one route per side.
+  - *December 2022*: 20,291 SBGR and 13,051 SBSP flights with an observed touchdown or lift-off; four sides × 101 stations, one route per side.
 - **Stream method** (`--stations=stream`; files with the suffix `_stream`, so the radial files are never overwritten):
   - *Paths*: each flight's last pass through the 10-NM circle (arrivals up to touchdown, departures from lift-off) is resampled along its length.
   - *Streams*: per flow and runway direction, the paths are clustered with k-means. The number of streams is the largest (up to 6) for which every stream carries at least 5% of the flights and the mean paths are at least 1.5 NM apart on average (20 random starts, fixed seed).
   - *Stations and cross-sections*: every 0.1 NM along each stream's mean path, from the runway outward. Each cross-section spans the smoothed 5th–95th percentiles of the flights' signed offset from the mean path, with about one spline degree of freedom per NM, so turns and width changes are followed smoothly.
-  - *December 2022*: 16 streams (9 at SBGR, 7 at SBSP) holding 33,374 of the 33,392 flights. At Congonhas, for example: a straight-in runway 17 final (3,335 arrivals), a circuit that joins it (766), and runway 17 and 35 departures turning each way.
+  - *December 2022*: 16 streams (9 at SBGR, 7 at SBSP) holding 33,329 of the 33,342 flights. At Congonhas, for example: a straight-in runway 17 final (3,331 arrivals), a circuit that joins it (766), and runway 17 and 35 departures turning each way.
 - **Comparing the methods**: on the December 2022 data they give similar lower limits on the Congonhas straight-in finals (within 50 ft up to 7 NM) but very different widths, so overlap *volume* shares differ widely.
-  - For the RIDITA 2026 corridors, 14.0% of the refined six-vertiport corridor volume lies in the radial SBSP envelope and 2.0% in the stream envelopes, almost all of it in departure streams.
+  - For the RIDITA 2026 corridors, 14.0% of the refined six-vertiport corridor volume lies in the radial SBSP envelope and 1.6% in the stream envelopes, almost all of it in departure streams. (The paper's 2.0% was made before the departure trimming was corrected; see below.)
   - Yet about 130 Congonhas arrivals a day fly through one corridor segment on the runway 17 final. The stream envelope there is about 0.02 NM wide, and a thin, dense flow fills little volume.
   - Volume shares should therefore be read with traffic counts.
 - **Reproducibility**: running the script on the December 2022 data reproduces the files in `data/envelopes/` byte for byte.
@@ -128,7 +146,7 @@ The scripts are classic `<script>` files that share one global scope, loaded in 
 
 ## Reproducing the RIDITA 2026 paper
 
-`ridita2026/` holds the scripts, settings and expected results for the RIDITA 2026 paper. See its README; the frozen scenario files are available on request, and the Flightradar24 tracks are licensed. The paper cites release `ridita-2026.2`. Later versions have the same methods and outputs, with different file locations (see below).
+`ridita2026/` holds the scripts, settings and expected results for the RIDITA 2026 paper. See its README; the frozen scenario files are available on request, and the Flightradar24 tracks are licensed. The paper cites release `ridita-2026.2`, which reproduces its numbers exactly. Release `ridita-2026.5` corrected the track quality control, which changes a few of them slightly (see below).
 
 ## Limitations
 
@@ -145,6 +163,14 @@ The scripts are classic `<script>` files that share one global scope, loaded in 
 - **Overlap analysis**: before release `ridita-2026`, a cell's whole overlap was counted as parallel when any overlapping pair in it was parallel. This slightly overstated the parallel share (RIDITA 2026 refined networks: 69.4% instead of 68.2%, 53.4% instead of 52.7%). Overlap totals and segment counts are unchanged.
 - **Loader**: before release `ridita-2026`, a route whose name already existed in another layer was skipped without notice.
 - **Envelopes**: releases `ridita-2026` and `ridita-2026.1` also contain an along-axis envelope variant (`--stations=axis --lateral=traffic --align=30`, files with the suffix `_axis_traffic_align30`). It was removed because it pools every aligned sample on one side of the airport, so traffic streams that share a side are mixed in one cross-section, giving irregular envelopes.
+- **Track quality control (`ridita-2026.5`)**: earlier releases kept two defects of the Flightradar24 input.
+  - *Synthetic phase-boundary points*: the 1-NM points described above were kept. Their interpolated altitudes made the SBGR runway 10 envelope dip to 2,141 ft at 1 NM, below the 2,461-ft field elevation; the raw 5th percentile there was 919 ft. The minimum is now 2,319 ft.
+  - *Departure trimming*: departures started at the first ground sample, so their taxi movements were kept, and the stream method treated them as part of the departure paths.
+  - *Effect on the RIDITA 2026 results* (paper values from `ridita-2026.2` → this release):
+    - radial overlap, footprint and centerline shares change by at most 0.04 percentage points (e.g. SBSP 16.47% → 16.45% for twelve vertiports);
+    - SBSP movements a day through the corridors go from 176 to 175, and in one lane's box at REH altitudes from 1.0 to 0.9;
+    - the stream SBSP share goes from 2.0% to 1.6% (six vertiports) and from 2.5% to 2.2% (twelve), because the runway 17 departure stream no longer includes taxi paths;
+    - 50 flights whose only ground sample was a synthetic point are no longer counted (SBGR 20,328 → 20,291; SBSP 13,064 → 13,051).
 - **Repository layout (after `ridita-2026.3`)**: files moved and a few names changed to US spelling. Results are unchanged.
 
   | Before | Now |

@@ -6,6 +6,11 @@
 #   2. --stations=stream on synthetic streams (tests/envelopes/make_synthetic_streams.R: straight-in and
 #      circuit arrivals, straight-out and turning departures): each stream must be found, follow
 #      its known path and climb profile, span its P5-P95 lateral band and be smooth.
+#   3. Track quality control (tools/fr24_tracks.R) on a small synthetic sample set with each known
+#      defect (taxi samples before lift-off, a phase-boundary point with an interpolated low
+#      altitude, an exact copy, ground samples after touchdown, an implausibly low sample), the
+#      pressure-to-QNH altitude conversion and the METAR matching; and --qnh end to end (a constant
+#      1013.25-hPa table must reproduce the reference outputs).
 # Requires R with dplyr. Exit status 0 when every check passes.
 script_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 here <- if (length(script_arg)) dirname(normalizePath(sub("^--file=", "", script_arg))) else file.path("tests", "envelopes")
@@ -86,6 +91,61 @@ routes <- read.csv(sout("approach_surfaces_SBSP_stream.csv"))
 check("stream route file: one route per stream, ids from the runway outwards",
       identical(unique(routes$route), c("ARR17_S1", "ARR17_S2", "DEP17_S1", "DEP17_S2")) &&
         all(tapply(routes$id, routes$route, function(i) identical(i, seq_along(i)))))
+
+# ---------------------------------------------------------------- 3. track quality control
+cat("Track quality control (tools/fr24_tracks.R)\n")
+qc_env <- new.env(); sys.source(file.path(root, "tools", "fr24_tracks.R"), envir = qc_env)
+suppressMessages(library(dplyr))
+a <- list(lat = -23.4356, lon = -46.4731, axis = 74, elev_m = 2461 * FT, rwy = c(10, 28))
+t0 <- as.POSIXct("2022-12-01 12:00:00", tz = "UTC")
+pt <- function(id, sec, phase, x_nm, alt, flow, head = 74)
+  data.frame(icao = "SBGR", indicat = id, time = t0 + sec, phase = phase, lat = a$lat, lon = a$lon + x_nm / (60 * cos(a$lat * pi / 180)),
+             alt = alt, head = head, flow = flow, stringsAsFactors = FALSE)
+pts <- rbind(
+  # departure 1: taxi (zeros) far from the runway end, lift-off zero, boundary point at 1 NM (both phases), climb
+  pt(1, 0, "GND_DEP", -0.5, 0, "DEP", 160), pt(1, 30, "GND_DEP", -0.6, 0, "DEP", 160), pt(1, 60, "GND_DEP", -0.4, 0, "DEP", 74),
+  pt(1, 90, "GND_DEP", 0.9, 0, "DEP"), pt(1, 93, "GND_DEP", 1.0, 821.2, "DEP"), pt(1, 93, "DEP_40", 1.0, 821.2, "DEP"),
+  pt(1, 98, "DEP_40", 1.3, 2700, "DEP"), pt(1, 104, "DEP_40", 1.7, 3000, "DEP"), pt(1, 104, "DEP_40", 1.7, 3000, "DEP"),
+  # arrival 2: approach, boundary point, touchdown zero, roll-out zeros
+  pt(2, 0, "ARR_40", -3, 3200, "ARR"), pt(2, 40, "ARR_40", -1.5, 2700, "ARR"), pt(2, 60, "GND_ARR", -1, 2500.5, "ARR"),
+  pt(2, 60, "ARR_40", -1, 2500.5, "ARR"), pt(2, 70, "GND_ARR", -0.5, 0, "ARR"), pt(2, 80, "GND_ARR", 0, 0, "ARR"),
+  # departure 3: one airborne sample 1,000 ft below the field elevation
+  pt(3, 0, "GND_DEP", 0.5, 0, "DEP"), pt(3, 10, "DEP_40", 1.5, 1461, "DEP"), pt(3, 20, "DEP_40", 2.5, 3100, "DEP"))
+res <- qc_env$prepare_tracks(pts, a, "SBGR")
+q <- res$qc; tr <- res$traj
+check("exact copies kept once", q$exact_copies == 1, sprintf("%d", q$exact_copies))
+check("phase-boundary points removed (both copies)", q$boundary_points == 2 && !any(tr$alt %in% c(821.2, 2500.5)), sprintf("%d points", q$boundary_points))
+check("departure starts at the lift-off zero (taxi samples trimmed)",
+      isTRUE(all.equal(as.numeric(tr$time[tr$indicat == 1 & tr$alt == 0]), as.numeric(t0 + 90))) && sum(tr$indicat == 1) == 3)
+check("arrival ends at the touchdown zero (roll-out trimmed)", as.numeric(max(tr$time[tr$indicat == 2])) == as.numeric(t0 + 70))
+check("ground trimming counted", q$ground_samples_trimmed == 4, sprintf("%d", q$ground_samples_trimmed))
+check("implausibly low airborne sample removed", q$implausibly_low == 1 && !any(tr$alt == 1461), sprintf("%d", q$implausibly_low))
+check("without a QNH table, altitudes are pressure altitudes; ground zeros take the field elevation",
+      all(abs(tr$alt_msl_m[tr$alt > 0] - tr$alt[tr$alt > 0] * FT) < 1e-9) && all(tr$alt_msl_m[tr$alt == 0] == a$elev_m))
+p2q <- qc_env$pressure_to_qnh_altitude
+check("QNH 1013.25 hPa leaves pressure altitudes unchanged", max(abs(p2q(c(0, 2461, 5000), 1013.25) - c(0, 2461, 5000))) < 1e-6)
+grad <- (p2q(2461, 1016) - p2q(2461, 1014)) / 2
+check("near the field, 1 hPa of QNH is about 27 ft", grad > 26 && grad < 29, sprintf("%.1f ft/hPa", grad))
+qtab <- data.frame(station = "SBGR", time = t0 + c(-3600, 0, 3600), qnh_hpa = c(1010, 1020, 1015))
+check("nearest METAR in time, none beyond 3 h",
+      identical(qc_env$nearest_qnh(t0 + c(-3000, 100, 2000, 4 * 3600 + 1), qtab), c(1010, 1020, 1015, NA)))
+resq <- qc_env$prepare_tracks(pts, a, "SBGR", qnh = qtab)
+x <- resq$traj %>% filter(indicat == 1, alt == 2700)
+check("with a QNH table, airborne altitudes are QNH altitudes", abs(x$alt_msl_m / FT - p2q(2700, 1020)) < 1e-6,
+      sprintf("2,700 ft pressure altitude -> %.0f ft at QNH 1020", x$alt_msl_m / FT))
+# --qnh end to end: a constant 1013.25-hPa table must reproduce the reference outputs
+qfile <- file.path(tmp, "qnh_standard.csv")
+write.csv(data.frame(station = rep(c("SBGR", "SBSP"), each = 3), valid_utc = rep(c("2022-12-01 00:00", "2022-12-01 01:00", "2022-12-01 02:00"), 2),
+                     qnh_hpa = 1013.25), qfile, row.names = FALSE)
+dir.create(file.path(tmp, "out_qnh"))
+invisible(run(shQuote(generator), shQuote(file.path(tmp, "in")), shQuote(file.path(tmp, "out_qnh")), paste0("--qnh=", shQuote(qfile))))
+same_all <- all(sapply(c("approach_surfaces_SBGR.csv", "approach_surfaces_SBSP.csv", "approach_surfaces_stations.csv"), function(f) {
+  u <- read.csv(file.path(tmp, "out_qnh", f)); v <- read.csv(file.path(expected, paste0("synthetic_default_", f)))
+  identical(names(u), names(v)) && nrow(u) == nrow(v) && all(mapply(function(p, r) if (is.numeric(p)) isTRUE(all.equal(p, r, tolerance = 1e-9)) else identical(as.character(p), as.character(r)), u, v))
+}))
+qc_out <- read.csv(file.path(tmp, "out_qnh", "approach_surfaces_qc.csv"))
+check("--qnh with a constant 1013.25-hPa table reproduces the reference outputs and reports QNH correction",
+      same_all && all(qc_out$altitude == "QNH-corrected") && all(qc_out$qnh_missing == 0))
 unlink(tmp, recursive = TRUE)
 cat(sprintf("\n%d passed, %d failed\n", sum(results), sum(!results)))
 quit(status = if (all(results)) 0 else 1)
