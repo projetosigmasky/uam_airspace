@@ -1,6 +1,7 @@
 """Recompute every quantitative claim of the revised RIDITA paper from the data and code."""
 import json
 import math
+import os
 import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -195,9 +196,24 @@ at10 = st[np.isclose(st.distance_nm, 10.0)].lower_limit_m / FT
 claim("2.3", "lower limit 3,650-3,900 ft at 5 NM; 4,600-5,000 ft at 10 NM", "3650-3900 / 4600-5000",
       f"{at5.min():.0f}-{at5.max():.0f} / {at10.min():.0f}-{at10.max():.0f}", 3600 <= at5.min() and at5.max() <= 3950 and 4550 <= at10.min() and at10.max() <= 5050)
 claim("2.3", "404 cross-sections, 4 sides x 101", "404", f"{len(st)} ({summ.stations.tolist()})", len(st) == 404)
-claim("2.3", "SBGR 20,328 / SBSP 13,064 flights; 80.2% rwy 10; 65.1% rwy 17", "from run log",
-      "SBGR 8216+1961 ARR, 8092+2059 DEP -> 20328, rwy10 80.2%; SBSP 4103+2455, 4407+2099 -> 13064, rwy17 65.1%",
-      round(100 * (8216 + 8092) / 20328, 1) == 80.2 and round(100 * (4103 + 4407) / 13064, 1) == 65.1 and 20328 + 13064 == 33392)
+# flights with an observed touchdown or lift-off, and the share on runways 10 (SBGR) and 17 (SBSP), from the
+# track quality-control table (written since ridita-2026.5; the paper's counts were made with ridita-2026.2)
+QC_TEXT = "SBGR 20,328 / SBSP 13,064 flights; 80.2% rwy 10; 65.1% rwy 17"
+if os.path.exists(ENV_DIR + "approach_surfaces_qc.csv"):
+    qct = pd.read_csv(ENV_DIR + "approach_surfaces_qc.csv").set_index("icao")
+    g_, s_ = qct.loc["SBGR"], qct.loc["SBSP"]
+    fl = (int(g_.flights), round(100 * g_.flights_rwy_a / g_.flights, 1), int(s_.flights), round(100 * s_.flights_rwy_a / s_.flights, 1))
+    txt = f"SBGR {fl[0]} ({fl[1]}% rwy {g_.rwy_a}), SBSP {fl[2]} ({fl[3]}% rwy {s_.rwy_a})"
+    if fl == (20328, 80.2, 13064, 65.1):
+        claim("2.3", QC_TEXT, "20328 / 80.2 / 13064 / 65.1", txt, True)
+    elif fl == (20291, 80.2, 13051, 65.2):
+        # documented change: ridita-2026.5 drops 50 flights whose only ground sample was a synthetic boundary point
+        rows.append(("2.3", QC_TEXT, "20328 / 80.2 / 13064 / 65.1",
+                     txt + "; ridita-2026.5 quality control drops 50 flights without an observed touchdown or lift-off", "NOTE"))
+    else:
+        claim("2.3", QC_TEXT, "20328 / 80.2 / 13064 / 65.1", txt, False)
+else:
+    rows.append(("2.3", QC_TEXT, "20328 / 80.2 / 13064 / 65.1", "not computed: approach_surfaces_qc.csv not found", "SKIP"))
 
 # ---------------------------------------------------------------- 3.1 / 3.2 / Table 2 volumetric
 v = json.load(open(REV + "overlap_volume.json", encoding="utf-8"))
@@ -284,4 +300,4 @@ pd.set_option("display.width", 250, "display.max_colwidth", 140)
 out = pd.DataFrame(rows, columns=["section", "claim", "paper", "computed", "status"])
 out.to_csv(REV + "verify_paper.csv", index=False)
 print(out.to_string(index=False))
-print("\nCHECK items:", (out.status == "CHECK").sum(), "| OK:", (out.status == "OK").sum(), "| INFO/SKIP:", out.status.isin(["INFO", "SKIP"]).sum())
+print("\nCHECK items:", (out.status == "CHECK").sum(), "| OK:", (out.status == "OK").sum(), "| INFO/SKIP/NOTE:", out.status.isin(["INFO", "SKIP", "NOTE"]).sum())

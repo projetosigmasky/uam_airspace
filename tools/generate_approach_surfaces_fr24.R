@@ -3,9 +3,12 @@
 # ==================================================================================
 # Usage:
 #   Rscript tools/generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]
+#                                                   [--qnh=<METAR QNH table>]
 #
-# The default (--stations=radial) reproduces the published envelopes, one per side of the
-# airport. --stations=stream builds one envelope per direction-resolved traffic stream instead
+# The default (--stations=radial) builds one envelope per side of the airport, as published.
+# --qnh converts the Flightradar24 pressure altitudes to altitudes above mean sea level with the
+# airports' METAR QNH (the published files use data/envelopes/metar_qnh_2022-12.csv); without it,
+# altitudes are pressure altitudes. --stations=stream builds one envelope per direction-resolved traffic stream instead
 # (see "Stream envelopes" below); its outputs carry the suffix _stream, so the published files
 # are never overwritten. Releases ridita-2026 and ridita-2026.1 also had an along-axis variant
 # (--stations=axis --lateral=traffic --align=30); it was removed because it pooled the traffic
@@ -17,19 +20,22 @@
 #   time      sample time (sortable)
 #   phase     flight phase; ARR_40 / GND_ARR (arrival) and DEP_40 / GND_DEP (departure) are used
 #   lat, lon  WGS84 position (degrees)
-#   alt       barometric altitude (ft); 0 on the ground
+#   alt       pressure altitude (ft, standard setting 1013.25 hPa); 0 on the ground
 #   head      heading (degrees)
 #   plan_dep, plan_arr  planned departure and arrival aerodromes (ICAO)
 # The published envelopes used December 2022 (31 days). Raw Flightradar24 data are licensed and
 # are not distributed with this repository.
 #
 # Method, per airport:
-#   1. Keep arrivals (ARR_40, GND_ARR) and departures (DEP_40, GND_DEP) within 0.3 deg of the
-#      airport, trimming ground samples at touchdown (first zero altitude) and lift-off (last
-#      zero altitude). The heading at those samples identifies the runway direction; parallel
-#      runways are grouped.
-#   2. Airborne altitudes are used as reported (barometric, no QNH correction); on-ground zeros
-#      take the field elevation.
+#   1. Track selection and quality control (tools/fr24_tracks.R): arrivals and departures within
+#      0.3 deg of the airport; exact copies kept once; the synthetic 1-NM phase-boundary points of
+#      the source data removed; ground samples trimmed at touchdown (first zero altitude) and
+#      lift-off (last zero altitude), whose heading identifies the runway direction (parallel
+#      runways grouped).
+#   2. Altitudes: with --qnh, airborne pressure altitudes are converted to altitudes above mean sea
+#      level with the QNH of the nearest METAR; on-ground zeros take the field elevation; airborne
+#      samples more than 300 ft below the field elevation are removed as implausible. The counts
+#      of each step are written to approach_surfaces_qc.csv.
 #   3. For each side of the airport reference point (ARP) along the runway axis, samples in that
 #      half-plane within 10 NM of the ARP are assigned to stations every 0.1 NM of radial
 #      distance, keeping the nearest sample of each flight; stations need at least 5 flights.
@@ -59,6 +65,7 @@
 #                                    because the dashboard centers volumes on altitude.
 #   approach_surfaces_stations.csv   per-station statistics (raw and smoothed)
 #   approach_surfaces_summary.csv    flights and extent per side (per stream)
+#   approach_surfaces_qc.csv         track quality-control counts per airport
 
 suppressMessages(library(dplyr))
 
@@ -69,20 +76,26 @@ opt_value <- function(name, default, allowed) {
   if (!value %in% allowed) stop(sprintf("--%s must be one of: %s", name, paste(allowed, collapse = ", ")))
   value
 }
-unknown <- setdiff(sub("=.*", "", grep("^--", all_args, value = TRUE)), "--stations")
+unknown <- setdiff(sub("=.*", "", grep("^--", all_args, value = TRUE)), c("--stations", "--qnh"))
 if (length(unknown)) stop(sprintf("Unknown option(s): %s (the along-axis options --stations=axis, --lateral and --align were removed after release ridita-2026.1)",
                                   paste(unknown, collapse = ", ")))
 STATIONS <- opt_value("stations", "radial", c("radial", "stream"))
+qnh_arg <- grep("^--qnh=", all_args, value = TRUE)
+QNH_FILE <- if (length(qnh_arg)) sub("^--qnh=", "", qnh_arg[length(qnh_arg)]) else NA
 args <- all_args[!grepl("^--", all_args)]
-if (length(args) < 1) stop("Usage: Rscript tools/generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream]")
+if (length(args) < 1) stop("Usage: Rscript tools/generate_approach_surfaces_fr24.R <fr24_dir> [out_dir] [--stations=radial|stream] [--qnh=<METAR QNH table>]")
 FR24_DIR <- args[1]
 script_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
 script_dir <- if (length(script_arg)) dirname(normalizePath(sub("^--file=", "", script_arg))) else getwd()
+source(file.path(script_dir, "fr24_tracks.R"))
+QNH <- if (is.na(QNH_FILE)) NULL else read_qnh(QNH_FILE)
 OUT_DIR <- if (length(args) >= 2) args[2] else file.path(dirname(script_dir), "data", "envelopes")
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 SUFFIX <- if (STATIONS == "stream") "_stream" else ""
 cat(if (STATIONS == "stream") "Stations: along the mean path of each direction-resolved stream\n" else
   "Stations: radial distance from the ARP, per side of the airport\n")
+cat(if (is.null(QNH)) "Altitudes: pressure altitudes as reported (no --qnh table)\n" else
+  sprintf("Altitudes: QNH-corrected with %s (%d METARs)\n", basename(QNH_FILE), nrow(QNH)))
 
 DISTANCE_STEP_NM <- 0.1
 MAX_DISTANCE_NM <- 10.0
@@ -98,8 +111,6 @@ airports <- list(
   SBSP = list(lat = -23.6261, lon = -46.6564, axis = 147, elev_m = 2631 * FT,
               pos_side = "SIDE_17", neg_side = "SIDE_35", rwy = c(17, 35))
 )
-
-hdiff <- function(a, b) { d <- abs(a - b) %% 360; pmin(d, 360 - d) }
 
 dest_point <- function(lat, lon, bearing_deg, dist_nm) {
   la <- lat * pi / 180; lo <- lon * pi / 180; b <- bearing_deg * pi / 180; d <- dist_nm / 3440.065
@@ -270,47 +281,17 @@ stream_envelopes <- function(traj, a, icao) {
 }
 
 # ------------------------------------------------------------------------------------------
-# Load the daily files, keeping only the samples needed for the two airports
+# Load the daily files and select the tracks (tools/fr24_tracks.R)
 # ------------------------------------------------------------------------------------------
-rda_files <- list.files(FR24_DIR, pattern = "[.]Rda$", full.names = TRUE)
-if (!length(rda_files)) stop("No .Rda files found in ", FR24_DIR)
-cat(sprintf("Found %d daily files\n", length(rda_files)))
-parts <- list()
-for (f in rda_files) {
-  env <- new.env(); load(f, envir = env); d <- get("df", envir = env)
-  for (icao in names(airports)) {
-    a <- airports[[icao]]
-    parts[[length(parts) + 1]] <- d %>%
-      filter(abs(lat - a$lat) < 0.3, abs(lon - a$lon) < 0.3,
-             (plan_arr == icao & phase %in% c("ARR_40", "GND_ARR")) |
-             (plan_dep == icao & phase %in% c("DEP_40", "GND_DEP"))) %>%
-      transmute(icao = icao, indicat, time, phase, lat, lon, alt, head,
-                flow = ifelse(plan_arr == icao & phase %in% c("ARR_40", "GND_ARR"), "ARR", "DEP"))
-  }
-  cat(sprintf("  %s\n", basename(f))); rm(d, env); invisible(gc())
-}
-all_pts <- bind_rows(parts); rm(parts)
+all_pts <- load_fr24(FR24_DIR, airports)
 
-summary_rows <- list(); station_rows <- list()
+summary_rows <- list(); station_rows <- list(); qc_rows <- list()
 
 for (icao in names(airports)) {
   a <- airports[[icao]]
-  pts <- all_pts %>% filter(icao == !!icao) %>% arrange(indicat, time)
-
-  # Ground-sample trimming and runway heading at touchdown / lift-off
-  arr <- pts %>% filter(flow == "ARR") %>% group_by(indicat) %>%
-    mutate(rn = row_number(), z = phase == "GND_ARR" & alt == 0,
-           first_z = ifelse(any(z), min(which(z)), Inf),
-           rwy_head = if (any(z)) head[which(z)[1]] else NA_real_) %>%
-    filter(phase == "ARR_40" | (phase == "GND_ARR" & rn <= first_z)) %>% ungroup()
-  dep <- pts %>% filter(flow == "DEP") %>% group_by(indicat) %>%
-    mutate(rn = row_number(), z = phase == "GND_DEP" & alt == 0,
-           first_z = ifelse(any(z), min(which(z)), Inf),
-           rwy_head = if (any(z)) head[max(which(z))] else NA_real_) %>%
-    filter(phase == "DEP_40" | (phase == "GND_DEP" & rn >= first_z)) %>% ungroup()
-  traj <- bind_rows(arr, dep) %>% filter(!is.na(rwy_head)) %>%
-    mutate(rwy = ifelse(hdiff(rwy_head, a$axis) <= hdiff(rwy_head, a$axis + 180), a$rwy[1], a$rwy[2]),
-           alt_msl_m = ifelse(alt == 0, a$elev_m, alt * FT))
+  prep <- prepare_tracks(all_pts %>% filter(icao == !!icao), a, icao, QNH)
+  traj <- prep$traj
+  qc_rows[[icao]] <- prep$qc
 
   # Local runway-axis frame centered on the ARP (NM)
   H <- a$axis * pi / 180
@@ -391,6 +372,9 @@ for (icao in names(airports)) {
 summ <- bind_rows(summary_rows)
 print(as.data.frame(summ))
 write.csv(summ, file.path(OUT_DIR, sprintf("approach_surfaces_summary%s.csv", SUFFIX)), row.names = FALSE)
+qc <- bind_rows(qc_rows)
+cat("\nTrack quality control:\n"); print(as.data.frame(qc))
+write.csv(qc, file.path(OUT_DIR, sprintf("approach_surfaces_qc%s.csv", SUFFIX)), row.names = FALSE)
 if (STATIONS == "stream") {
   stations <- bind_rows(station_rows) %>%
     transmute(icao, stream, flow, runway, station = k, distance_along_path_nm = distance_nm, lat, lon, n_flights,
